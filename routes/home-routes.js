@@ -81,14 +81,14 @@ router.post("/create-exam", async (req, res) => {
             // Begin a transaction
             await client.query('BEGIN');
 
-            let dummy_uuid = "75412f43-9026-47a4-8910-c223955a6242";
+            let dummy_uuid = "8db52807-127f-4b65-a924-d9b6f851c870";
             let exam_id_query = await client.query('INSERT INTO exam(teacher_id, class_name, title, description, start_time, end_time, allow_jumping, shuffle_questions, shuffle_options) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id;', [dummy_uuid, class_name, title, description, start_time, end_time, allow_jumping, shuffle_questions, shuffle_options]);
             let exam_id = exam_id_query.rows[0].id;
 
             for (let q = 0; q < questions.length; ++q) {
                 await client.query("INSERT INTO question(index, exam_id, text, score) VALUES($1, $2, $3, $4)", [q, exam_id, questions[q].text, questions[q].score]);
                 for (let o = 0; o < questions[q].options.length; ++o) {
-                    await client.query("INSERT INTO option(index, question_index, text, correct_answer) VALUES($1, $2, $3, $4)", [o, q, questions[q].options[o].text, questions[q].options[o].isCorrect]);
+                    await client.query("INSERT INTO option(exam_id, index, question_index, text, correct_answer) VALUES($1, $2, $3, $4, $5)", [exam_id, o, q, questions[q].options[o].text, questions[q].options[o].isCorrect]);
                 }
             }
 

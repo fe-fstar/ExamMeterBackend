@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS exam (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    teacher_id UUID,
+    teacher_id UUID REFERENCES users(id),
     start_time TIMESTAMP,
     end_time TIMESTAMP,
     allow_jumping BOOLEAN,
@@ -25,12 +25,12 @@ CREATE TABLE IF NOT EXISTS exam (
     shuffle_options BOOLEAN,
     class_name VARCHAR(255),
     description VARCHAR(255),
-    title VARCHAR(255);
+    title VARCHAR(255)
 );
 
 CREATE TABLE IF NOT EXISTS feedback (
-    student_id UUID,
-    exam_id UUID,
+    student_id UUID REFERENCES users(id),
+    exam_id UUID REFERENCES exam(id),
     difficulty_score INTEGER,
     topic_relevance_score INTEGER,
     method_relevance_score INTEGER,
@@ -39,27 +39,28 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 
 CREATE TABLE IF NOT EXISTS question (
-    index SERIAL,
-    exam_id UUID,
+    index INTEGER,
+    exam_id UUID REFERENCES exam(id),
     text TEXT,
     score INTEGER,
     PRIMARY KEY (index, exam_id)
 );
 
 CREATE TABLE IF NOT EXISTS option (
-    index SERIAL,
+    exam_id UUID REFERENCES exam(id),
+    index INTEGER,
     question_index INTEGER,
     text TEXT,
     correct_answer BOOLEAN,
-    PRIMARY KEY (index, question_index)
+    PRIMARY KEY (index, question_index, exam_id)
 );
 
 CREATE TABLE IF NOT EXISTS takes (
-    exam_id UUID,
-    student_id UUID,
+    exam_id UUID REFERENCES exam(id),
+    student_id UUID REFERENCES users(id),
     grade INTEGER,
     PRIMARY KEY (exam_id, student_id)
 );
 
--- 190315031@ogr.cbu.edu.tr | 12312312331
--- funda-cavusyilar@cbu.edu.tr | Springeu.4
+-- 190315031@ogr.cbu.edu.tr | 12312312331 | student
+-- funda-cavusyilar@cbu.edu.tr | Springeu.4 | teacher
