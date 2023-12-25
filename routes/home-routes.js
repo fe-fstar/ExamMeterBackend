@@ -4,7 +4,6 @@ const bcrypt = require("bcrypt");
 const generateJWT = require("../utils/generate-jwt");
 const validInfo = require("../middleware/valid-info");
 const authorize = require("../middleware/authorize");
-// const crypto = require('crypto');
 
 router.get("/", (_, res) => {
     res.status(200).send("12/19 Kolta was here.");
@@ -69,20 +68,21 @@ router.post("/register", validInfo, async (req, res) => {
     }
 });
 
-router.post("/create-exam", async (req, res) => {
+// Create an exam
+router.post("/exam", async (req, res) => {
     async function createExam(id) {
         const client = await pool.connect();
 
-        // Frontend ile entegre ederken dummy uuid'yi id ile değiştir ve middleware kısmına authorize yaz.
+        // Authorize'dan req.user isteği atan kullanıcının id'sini döndürüyor. Aşağıdaki dummy_id'yi onunla değiştir.
 
         try {
-            const { questions, class_name, title, description, start_time, end_time, allow_jumping, shuffle_questions, shuffle_options } = req.body;
+            const { questions, className, title, description, startsAt, endsAt, jumpingEnabled, shuffleQuestions, shuffleOptions } = req.body;
 
             // Begin a transaction
             await client.query('BEGIN');
 
-            let dummy_uuid = "8db52807-127f-4b65-a924-d9b6f851c870";
-            let exam_id_query = await client.query('INSERT INTO exam(teacher_id, class_name, title, description, start_time, end_time, allow_jumping, shuffle_questions, shuffle_options) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id;', [dummy_uuid, class_name, title, description, start_time, end_time, allow_jumping, shuffle_questions, shuffle_options]);
+            let dummy_uuid = "8db52807-127f-4b65-a924-d9b6f851c870"; // Var olan öğretmenlerden birinin ID'si
+            let exam_id_query = await client.query('INSERT INTO exam(teacher_id, class_name, title, description, start_time, end_time, allow_jumping, shuffle_questions, shuffle_options) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id;', [dummy_uuid, className, title, description, startsAt, endsAt, jumpingEnabled, shuffleQuestions, shuffleOptions]);
             let exam_id = exam_id_query.rows[0].id;
 
             for (let q = 0; q < questions.length; ++q) {
@@ -113,6 +113,171 @@ router.post("/create-exam", async (req, res) => {
         .catch((error) => {
             console.error('Sınavı oluştururken hata oluştu:', error);
         });
+});
+
+// Delete an exam
+router.delete("/exam", async (req, res) => {
+    async function deleteExam(id) {
+        const client = await pool.connect();
+
+        // Authorize'dan req.user isteği atan kullanıcının id'sini döndürüyor. Onu kullanırken aşağıdaki teacher_id'yi kaldırabilirsin.
+        // ve query'de silmek istediğimiz exam'in teacher id'si isteği atan kişinin id'sine eşit mi kontrol edebilirsin.
+
+        try {
+            const { id, teacher_id, startsAt } = req.body;
+
+            if (Date.now() >= new Date(startsAt)) {
+                return res.status(401).json({ success: false, message: "Sınav başladıktan sonra sınavı silemezsiniz." });
+            }
+
+            // Begin a transaction
+            await client.query('BEGIN');
+
+            await client.query("DELETE FROM option WHERE exam_id = $1", [id]);
+            await client.query("DELETE FROM question WHERE exam_id = $1", [id]);
+            await client.query("DELETE FROM exam WHERE id = $1", [id]);
+
+            await client.query('COMMIT');
+        } catch (error) {
+            // If an error occurs, roll back the transaction to maintain data consistency
+            await client.query('ROLLBACK');
+            console.error(error.message);
+            return res.status(500).send({ success: false, message: "Sunucu hatası." });
+        } finally {
+            // Release the client back to the pool
+            client.release();
+        }
+    };
+
+    deleteExam(req.user)
+        .then((exam_id) => {
+            return res.status(200).json({ success: true, message: `Sınav başarı ile silindi.` });
+        })
+        .catch((error) => {
+            console.error('Sınavı oluştururken hata oluştu:', error);
+        });
+});
+
+router.put("/exam", async (req, res) => {
+    async function updateExam(id) {
+        const client = await pool.connect();
+        try {
+            const { exam_id, questions, className, title, description, startsAt, endsAt, jumpingEnabled, shuffleQuestions, shuffleOptions } = req.body;
+
+            // Check if teacher is allowed to update the exam (they might not be able to because the exam might have already started)
+
+            let original_start_time = await client.query("SELECT start_time FROM exam WHERE id = $1;", [exam_id]);
+            if (Date.now() >= new Date(original_start_time.rows[0].start_time)) {
+                return res.status(401).json({ success: false, message: "Sınav başladıktan sonra sınavı güncelleyemezsiniz." });
+            }
+
+            // Delete every old question and option of exam to add new ones
+            // Begin a transaction
+            await client.query('BEGIN');
+
+            await client.query("DELETE FROM option WHERE exam_id = $1", [exam_id]);
+            await client.query("DELETE FROM question WHERE exam_id = $1", [exam_id]);
+
+            // Update start time, end time, jumping allowed, shuffle options, shuffle questions, title, class, and description of exam.
+            await client.query("UPDATE exam SET class_name = $1, title = $2, description = $3, start_time = $4, end_time = $5, allow_jumping = $6, shuffle_questions = $7, shuffle_options = $8 WHERE id = $9;", [className, title, description, startsAt, endsAt, jumpingEnabled, shuffleQuestions, shuffleOptions, exam_id]);
+
+            // Add new questions and options.
+            for (let q = 0; q < questions.length; ++q) {
+                await client.query("INSERT INTO question(index, exam_id, text, score) VALUES($1, $2, $3, $4)", [q, exam_id, questions[q].text, questions[q].score]);
+                for (let o = 0; o < questions[q].options.length; ++o) {
+                    await client.query("INSERT INTO option(exam_id, index, question_index, text, correct_answer) VALUES($1, $2, $3, $4, $5)", [exam_id, o, q, questions[q].options[o].text, questions[q].options[o].isCorrect]);
+                }
+            }
+            // Commit the transaction if all queries were successful
+            await client.query('COMMIT');
+        } catch (error) {
+            // If an error occurs, roll back the transaction to maintain data consistency
+            await client.query('ROLLBACK');
+            console.error(error.message);
+            return res.status(500).send({ success: false, message: "Sunucu hatası." });
+        } finally {
+            // Release the client back to the pool
+            client.release();
+        }
+    }
+
+    updateExam(req.user)
+        .then((exam_id) => {
+            return res.status(200).json({ success: true, message: `Sınav başarı ile güncellendi.` });
+        })
+        .catch((error) => {
+            console.error('Sınavı oluştururken hata oluştu:', error);
+        });
+});
+
+// Retrieve a single exam
+router.get("/exam/:exam_id", async (req, res) => {
+    try {
+        await client.query('BEGIN');
+        let exam_id = req.params["exam_id"];
+
+        let exam_query = await client.query("SELECT * FROM exam WHERE id = $1", [exam_id]);
+        let exam_questions_query = await client.query("SELECT * FROM question WHERE exam_id = $1", [exam_id]);
+        let exam_options_query = await client.query("SELECT * FROM option WHERE exam_id = $1", [exam_id]);
+        let exam = exam_query.rows[0];
+        let exam_questions = exam_questions_query.rows;
+        let exam_options = exam_options_query.rows;;
+
+        exam.questions = exam_questions.sort(function (a, b) { return a.index - b.index });
+
+        for (let question of exam.questions) {
+            question.options = [];
+        }
+
+        function compareOptions(obj1, obj2) {
+            if (obj1.question_index < obj2.question_index) {
+                return -1;
+            } else if (obj1.question_index > obj2.question_index) {
+                return 1;
+            } else {
+                if (obj1.index < obj2.index) {
+                    return -1;
+                } else if (obj1.index > obj2.index) {
+                    return 1;
+                } else {
+                    return 0;
+                }
+            }
+        }
+
+        exam_options = exam_options.sort(compareOptions);
+
+        exam_options.forEach((option, index) => {
+            exam.questions[option.question_index].options.push(option);
+        });
+
+        return res.status(200).json({ success: true, exam });
+    } catch (error) {
+        console.error("Sınav bilgisini toplarken hata oluştu:", error.message);
+        return res.status(500).send({ success: false, message: "Sunucu hatası." });
+    }
+});
+
+// Get all exams of a student or a teacher
+router.get("/exam", async (req, res) => {
+    try {
+        let user_id = "8db52807-127f-4b65-a924-d9b6f851c870" // authorize'dan req.user'dan gelecek kullanıcı adı
+
+        let user_query = await pool.query("SELECT role FROM users WHERE id = $1;", [user_id]);
+
+        let exam_query;
+
+        if (user_query.rows[0].role === "student") {
+            exam_query = await pool.query("SELECT * FROM takes WHERE student_id = $1;", [user_id]);
+        } else if (user_query.rows[0].role === "teacher") {
+            exam_query = await pool.query("SELECT start_time, title, class, description, class_name FROM exam WHERE teacher = $1;", [user_id]);
+        }
+
+        return res.status(200).json({ success: true, exam: exam_query.rows });
+    } catch (error) {
+        console.error("Sınav listesini getirirken hata oluştu:", error.message);
+        return res.status(500).send({ success: false, message: "Sunucu hatası." });
+    }
 });
 
 // VERIFY AUTHENTIC TOKEN
