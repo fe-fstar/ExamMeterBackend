@@ -9,7 +9,7 @@ module.exports = async (req, res, next) => {
             return res.status(403).send({ success: false, message: "Yetki yok." });
         }
 
-        const payload = jwt.verify(jwt_token, process.env.JWTSECRET);
+        const payload = jwt.verify(jwt_token, process.env.JWT_SECRET);
 
         req.user = payload.user;
         

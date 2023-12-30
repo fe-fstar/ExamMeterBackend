@@ -22,12 +22,14 @@ router.post("/login", validInfo, async (req, res) => {
         let valid_password = await bcrypt.compare(password, email_query.rows[0].password);
 
         if (!valid_password) {
-            return res.status(401).json({ success: false, message: "Yanlış e-posta ve şifre kombinasyonu." });
+            return res.status(401).json({ success: false, message: "Yanlış e-posta veya şifre kombinasyonu." });
         }
 
         let token = generateJWT(email_query.rows[0].id);
 
-        res.status(201).json({ success: true, token });
+        email_query = await pool.query("SELECT * FROM users WHERE email = $1;", [email]);
+
+        res.status(201).json({ success: true, token, message: "Giriş başarılı - ana sayfaya yönlendiriliyorsunuz.", role: email_query.rows[0].role });
     } catch (error) {
         console.error(error.message);
         res.status(500).json({ success: false, message: "Sunucu hatası." });
@@ -69,11 +71,11 @@ router.post("/register", validInfo, async (req, res) => {
 });
 
 // Create an exam
-router.post("/exam", async (req, res) => {
+router.post("/exam", authorize, async (req, res) => {
     async function createExam(id) {
         const client = await pool.connect();
 
-        // Authorize'dan req.user isteği atan kullanıcının id'sini döndürüyor. Aşağıdaki dummy_id'yi onunla değiştir.
+        let user_id = req.user;
 
         try {
             const { questions, className, title, description, startsAt, endsAt, jumpingEnabled, shuffleQuestions, shuffleOptions } = req.body;
@@ -81,8 +83,7 @@ router.post("/exam", async (req, res) => {
             // Begin a transaction
             await client.query('BEGIN');
 
-            let dummy_uuid = "8db52807-127f-4b65-a924-d9b6f851c870"; // Var olan öğretmenlerden birinin ID'si
-            let exam_id_query = await client.query('INSERT INTO exam(teacher_id, class_name, title, description, start_time, end_time, allow_jumping, shuffle_questions, shuffle_options) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id;', [dummy_uuid, className, title, description, startsAt, endsAt, jumpingEnabled, shuffleQuestions, shuffleOptions]);
+            let exam_id_query = await client.query('INSERT INTO exam(teacher_id, class_name, title, description, start_time, end_time, allow_jumping, shuffle_questions, shuffle_options) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id;', [user_id, className, title, description, startsAt, endsAt, jumpingEnabled, shuffleQuestions, shuffleOptions]);
             let exam_id = exam_id_query.rows[0].id;
 
             for (let q = 0; q < questions.length; ++q) {
@@ -213,17 +214,45 @@ router.put("/exam", async (req, res) => {
 // Retrieve a single exam
 router.get("/exam/:exam_id", async (req, res) => {
     try {
-        await client.query('BEGIN');
         let exam_id = req.params["exam_id"];
 
-        let exam_query = await client.query("SELECT * FROM exam WHERE id = $1", [exam_id]);
-        let exam_questions_query = await client.query("SELECT * FROM question WHERE exam_id = $1", [exam_id]);
-        let exam_options_query = await client.query("SELECT * FROM option WHERE exam_id = $1", [exam_id]);
+        let exam_query;
+        let exam_questions_query;
+        let exam_options_query;
+
+        await Promise.all([pool.query("SELECT * FROM exam WHERE id = $1", [exam_id]),
+        pool.query("SELECT * FROM question WHERE exam_id = $1", [exam_id]),
+        pool.query("SELECT * FROM option WHERE exam_id = $1", [exam_id])]).then((results) => {
+            exam_query = results[0];
+            exam_questions_query = results[1];
+            exam_options_query = results[2];
+        });
+
         let exam = exam_query.rows[0];
         let exam_questions = exam_questions_query.rows;
-        let exam_options = exam_options_query.rows;;
+        let exam_options = exam_options_query.rows;
 
-        exam.questions = exam_questions.sort(function (a, b) { return a.index - b.index });
+        let newExam = {
+            id: exam.id,
+            teacherId: exam.teacher_id,
+            startTime: exam.start_time,
+            endTime: exam.end_time,
+            allowJumping: exam.allow_jumping,
+            shuffleQuestions: exam.shuffle_questions,
+            shuffleOptions: exam.shuffle_options,
+            className: exam.class_name,
+            description: exam.description,
+            title: exam.title,
+        };
+
+        exam = newExam;
+
+        // Shuffle questions if enabled; otherwise, sort them.
+        if (exam.shuffleQuestions) {
+            exam.questions = exam_questions.sort(() => Math.random() - 0.5);
+        } else {
+            exam.questions = exam_questions.sort(function (a, b) { return a.index - b.index });
+        }
 
         for (let question of exam.questions) {
             question.options = [];
@@ -245,7 +274,12 @@ router.get("/exam/:exam_id", async (req, res) => {
             }
         }
 
-        exam_options = exam_options.sort(compareOptions);
+        // Shuffle options if enabled; otherwise, sort them.
+        if (exam.shuffleOptions) {
+            exam_options = exam_options.sort(() => Math.random() - 0.5);
+        } else {
+            exam_options = exam_options.sort(compareOptions);
+        }
 
         exam_options.forEach((option, index) => {
             exam.questions[option.question_index].options.push(option);
@@ -259,9 +293,9 @@ router.get("/exam/:exam_id", async (req, res) => {
 });
 
 // Get all exams of a student or a teacher
-router.get("/exam", async (req, res) => {
+router.get("/exam", authorize, async (req, res) => {
     try {
-        let user_id = "8db52807-127f-4b65-a924-d9b6f851c870" // authorize'dan req.user'dan gelecek kullanıcı adı
+        let user_id = req.user;
 
         let user_query = await pool.query("SELECT role FROM users WHERE id = $1;", [user_id]);
 
@@ -270,13 +304,52 @@ router.get("/exam", async (req, res) => {
         if (user_query.rows[0].role === "student") {
             exam_query = await pool.query("SELECT * FROM takes WHERE student_id = $1;", [user_id]);
         } else if (user_query.rows[0].role === "teacher") {
-            exam_query = await pool.query("SELECT start_time, title, class, description, class_name FROM exam WHERE teacher = $1;", [user_id]);
+            exam_query = await pool.query("SELECT id, start_time, title, class_name FROM exam WHERE teacher_id = $1;", [user_id]);
         }
 
-        return res.status(200).json({ success: true, exam: exam_query.rows });
+        let parsedExams = [];
+
+        for (let exam of exam_query.rows) {
+            let parsedExam = {
+                startTime: exam.start_time,
+                title: exam.title,
+                className: exam.class_name,
+                id: exam.id
+            };
+
+            parsedExams.push(parsedExam);
+        }
+
+        return res.status(200).json({ success: true, exams: parsedExams });
     } catch (error) {
         console.error("Sınav listesini getirirken hata oluştu:", error.message);
         return res.status(500).send({ success: false, message: "Sunucu hatası." });
+    }
+});
+
+router.post("/submit_exam", authorize, async (req, res) => {
+    let student_id = req.user;
+    let { id, answers, topicRelevanceScore, methodRelevanceScore, difficultyScore, additionalNote } = req.body;
+    let grade = 44; // CALCULATE GRADE
+
+    try {
+        await pool.query("INSERT INTO takes(exam_id, student_id, grade, answers, difficulty_score, topic_relevance_score, method_relevance_score, additional_note) VALUES($1, $2, $3, $4, $5, $6, $7, $8);", [id, student_id, grade, answers, difficultyScore, topicRelevanceScore, methodRelevanceScore, additionalNote]);
+        return res.status(201).json({ success: true, message: "Sınavınız başarı ile gönderilmiştir. Ana sayfaya yönlendiriliyorsunuz." });
+    } catch (error) {
+        res.status(500).send({ success: false, message: "Sunucu hatası." });
+    }
+});
+
+router.get("/get_role", authorize, async (req, res) => {
+    try {
+        let userId = req.user;
+
+        let userQuery = await pool.query("SELECT role FROM users WHERE id = $1;", [userId]);
+
+        res.status(200).json({ success: true, role: userQuery.rows[0].role });
+    } catch (error) {
+        console.error(error.message);
+        res.status(500).send({ success: false, message: "Sunucu hatası." });
     }
 });
 

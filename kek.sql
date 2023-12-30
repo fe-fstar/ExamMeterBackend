@@ -28,16 +28,6 @@ CREATE TABLE IF NOT EXISTS exam (
     title VARCHAR(255)
 );
 
-CREATE TABLE IF NOT EXISTS feedback (
-    student_id UUID REFERENCES users(id),
-    exam_id UUID REFERENCES exam(id),
-    difficulty_score INTEGER,
-    topic_relevance_score INTEGER,
-    method_relevance_score INTEGER,
-    additional_note TEXT,
-    PRIMARY KEY (student_id, exam_id)
-);
-
 CREATE TABLE IF NOT EXISTS question (
     index INTEGER,
     exam_id UUID REFERENCES exam(id),
@@ -59,6 +49,11 @@ CREATE TABLE IF NOT EXISTS takes (
     exam_id UUID REFERENCES exam(id),
     student_id UUID REFERENCES users(id),
     grade INTEGER,
+    answers VARCHAR(255),
+    difficulty_score INTEGER,
+    topic_relevance_score INTEGER,
+    method_relevance_score INTEGER,
+    additional_note TEXT,
     PRIMARY KEY (exam_id, student_id)
 );
 
