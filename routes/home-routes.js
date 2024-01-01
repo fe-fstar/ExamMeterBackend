@@ -117,12 +117,11 @@ router.post("/exam", authorize, async (req, res) => {
 });
 
 // Delete an exam
-router.delete("/exam", async (req, res) => {
+router.delete("/exam", authorize, async (req, res) => {
     async function deleteExam(id) {
         const client = await pool.connect();
 
-        // Authorize'dan req.user isteği atan kullanıcının id'sini döndürüyor. Onu kullanırken aşağıdaki teacher_id'yi kaldırabilirsin.
-        // ve query'de silmek istediğimiz exam'in teacher id'si isteği atan kişinin id'sine eşit mi kontrol edebilirsin.
+        let teacher_id = req.user;
 
         try {
             const { id, teacher_id, startsAt } = req.body;
@@ -302,7 +301,7 @@ router.get("/exam", authorize, async (req, res) => {
         let exam_query;
 
         if (user_query.rows[0].role === "student") {
-            exam_query = await pool.query("SELECT * FROM takes WHERE student_id = $1;", [user_id]);
+            exam_query = await pool.query("SELECT exam.id, exam.class_name, exam.title, exam.start_time, exam.end_time, takes.grade FROM exam LEFT JOIN takes ON exam.id = takes.exam_id WHERE exam.teacher_id = $1 OR takes.student_id = $1;", [user_id]);
         } else if (user_query.rows[0].role === "teacher") {
             exam_query = await pool.query("SELECT id, start_time, title, class_name FROM exam WHERE teacher_id = $1;", [user_id]);
         }
@@ -314,7 +313,8 @@ router.get("/exam", authorize, async (req, res) => {
                 startTime: exam.start_time,
                 title: exam.title,
                 className: exam.class_name,
-                id: exam.id
+                id: exam.id,
+                grade: exam.grade
             };
 
             parsedExams.push(parsedExam);
@@ -330,10 +330,9 @@ router.get("/exam", authorize, async (req, res) => {
 router.post("/submit_exam", authorize, async (req, res) => {
     let student_id = req.user;
     let { id, answers, topicRelevanceScore, methodRelevanceScore, difficultyScore, additionalNote } = req.body;
-    let grade = 44; // CALCULATE GRADE
 
     try {
-        await pool.query("INSERT INTO takes(exam_id, student_id, grade, answers, difficulty_score, topic_relevance_score, method_relevance_score, additional_note) VALUES($1, $2, $3, $4, $5, $6, $7, $8);", [id, student_id, grade, answers, difficultyScore, topicRelevanceScore, methodRelevanceScore, additionalNote]);
+        await pool.query("INSERT INTO takes(exam_id, student_id, answers, difficulty_score, topic_relevance_score, method_relevance_score, additional_note) VALUES($1, $2, $3, $4, $5, $6, $7);", [id, student_id, answers, difficultyScore, topicRelevanceScore, methodRelevanceScore, additionalNote]);
         return res.status(201).json({ success: true, message: "Sınavınız başarı ile gönderilmiştir. Ana sayfaya yönlendiriliyorsunuz." });
     } catch (error) {
         res.status(500).send({ success: false, message: "Sunucu hatası." });
