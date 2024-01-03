@@ -5,6 +5,22 @@ const generateJWT = require("../utils/generate-jwt");
 const validInfo = require("../middleware/valid-info");
 const authorize = require("../middleware/authorize");
 
+function compareOptions(obj1, obj2) {
+    if (obj1.question_index < obj2.question_index) {
+        return -1;
+    } else if (obj1.question_index > obj2.question_index) {
+        return 1;
+    } else {
+        if (obj1.index < obj2.index) {
+            return -1;
+        } else if (obj1.index > obj2.index) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+}
+
 router.get("/", (_, res) => {
     res.status(200).send("12/19 Kolta was here.");
 });
@@ -78,18 +94,18 @@ router.post("/exam", authorize, async (req, res) => {
         let user_id = req.user;
 
         try {
-            const { questions, className, title, description, startsAt, endsAt, jumpingEnabled, shuffleQuestions, shuffleOptions } = req.body;
+            const { questions, className, title, description, startTime, endTime, allowJumping, shuffleQuestions, shuffleOptions } = req.body;
 
             // Begin a transaction
             await client.query('BEGIN');
 
-            let exam_id_query = await client.query('INSERT INTO exam(teacher_id, class_name, title, description, start_time, end_time, allow_jumping, shuffle_questions, shuffle_options) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id;', [user_id, className, title, description, startsAt, endsAt, jumpingEnabled, shuffleQuestions, shuffleOptions]);
+            let exam_id_query = await client.query('INSERT INTO exam(teacher_id, class_name, title, description, start_time, end_time, allow_jumping, shuffle_questions, shuffle_options) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id;', [user_id, className, title, description, startTime, endTime, allowJumping, shuffleQuestions, shuffleOptions]);
             let exam_id = exam_id_query.rows[0].id;
 
             for (let q = 0; q < questions.length; ++q) {
                 await client.query("INSERT INTO question(index, exam_id, text, score) VALUES($1, $2, $3, $4)", [q, exam_id, questions[q].text, questions[q].score]);
                 for (let o = 0; o < questions[q].options.length; ++o) {
-                    await client.query("INSERT INTO option(exam_id, index, question_index, text, correct_answer) VALUES($1, $2, $3, $4, $5)", [exam_id, o, q, questions[q].options[o].text, questions[q].options[o].isCorrect]);
+                    await client.query("INSERT INTO option(exam_id, index, question_index, text, correct_answer) VALUES($1, $2, $3, $4, $5)", [exam_id, o, q, questions[q].options[o].text, questions[q].options[o].correctAnswer]);
                 }
             }
 
@@ -109,7 +125,7 @@ router.post("/exam", authorize, async (req, res) => {
 
     createExam(req.user)
         .then((exam_id) => {
-            res.status(200).json({ success: true, message: `Sınav başarı ile oluşturuldu. Link: ${exam_id}` });
+            res.status(200).json({ success: true, message: `Sınav başarı ile oluşturuldu.`, id: `${exam_id}` });
         })
         .catch((error) => {
             console.error('Sınavı oluştururken hata oluştu:', error);
@@ -257,22 +273,6 @@ router.get("/exam/:exam_id", async (req, res) => {
             question.options = [];
         }
 
-        function compareOptions(obj1, obj2) {
-            if (obj1.question_index < obj2.question_index) {
-                return -1;
-            } else if (obj1.question_index > obj2.question_index) {
-                return 1;
-            } else {
-                if (obj1.index < obj2.index) {
-                    return -1;
-                } else if (obj1.index > obj2.index) {
-                    return 1;
-                } else {
-                    return 0;
-                }
-            }
-        }
-
         // Shuffle options if enabled; otherwise, sort them.
         if (exam.shuffleOptions) {
             exam_options = exam_options.sort(() => Math.random() - 0.5);
@@ -280,8 +280,9 @@ router.get("/exam/:exam_id", async (req, res) => {
             exam_options = exam_options.sort(compareOptions);
         }
 
-        exam_options.forEach((option, index) => {
-            exam.questions[option.question_index].options.push(option);
+        exam_options.forEach((option) => {
+            let foundHere = exam.questions.findIndex((obj) => obj.index === option.question_index);
+            exam.questions[foundHere].options.push(option);
         });
 
         return res.status(200).json({ success: true, exam });
@@ -327,12 +328,75 @@ router.get("/exam", authorize, async (req, res) => {
     }
 });
 
+// Get questions of exams with same class_name
+router.post("/question", async (req, res) => {
+    try {
+        let class_name = req.body.class_name;
+        let questions;
+        let options;
+        await Promise.all([pool.query("SELECT q.* FROM question q JOIN exam e ON q.exam_id = e.id WHERE e.class_name = $1;", [class_name]),
+                            pool.query("SELECT o.* FROM option o JOIN exam e ON o.exam_id = e.id WHERE e.class_name = $1;", [class_name])])
+                            .then((results) => {
+           questions = results[0].rows;
+           options = results[1].rows; 
+        });
+
+        let parsedQuestions = [];
+
+        questions = questions.sort(function (a, b) { return a.index - b.index });
+        options = options.sort(compareOptions);
+
+        console.log("QUESTIONS:", questions);
+        console.log("OPTIONS:", options);
+
+        for (let q = 0; q < questions.length; ++q) {
+            let questionObj = {
+                index: questions[q].index,
+                examId: questions[q].exam_id,
+                text: questions[q].text,
+                correctCount: questions[q].correct_count,
+                incorrectCount: questions[q].incorrect_count,
+                unansweredCount: questions[q].unanswered_count,
+                correctRatio: questions[q].correct_ratio,
+                discriminationRatio: questions[q].discrimination_ratio,
+                options: []
+            };
+
+            for(let o = 0; o < options.length; ++o) {
+                if(questions[q].index !== options[o].question_index || questions[q].exam_id !== options[o].exam_id) {
+                    continue;
+                } else {
+                    let optionObj = {
+                        index: options[o].index,
+                        examId: options[o].exam_id,
+                        questionIndex: options[o].question_index,
+                        text: options[o].text,
+                        correctAnswer: options[o].correct_answer,
+                        frequency: options[o].frequency,
+                        frequencyRatio: options[o].frequency_ratio,
+                        discriminationRatio: options[o].discrimination_ratio
+                    };
+
+                    questionObj.options.push(optionObj);
+                }
+            }
+
+            parsedQuestions.push(questionObj);
+        }
+
+        return res.status(200).json({ success: true, message: "Sorular başarı ile getirildi.", questions: parsedQuestions });
+    } catch (error) {
+        console.error(error.message);
+        return res.status(500).json({ success: false, message: "Sunucu hatası." });
+    }
+});
+
 router.post("/submit_exam", authorize, async (req, res) => {
     let student_id = req.user;
-    let { id, answers, topicRelevanceScore, methodRelevanceScore, difficultyScore, additionalNote } = req.body;
+    let { id, grade, answers, topicRelevanceScore, methodRelevanceScore, difficultyScore, additionalNote } = req.body;
 
     try {
-        await pool.query("INSERT INTO takes(exam_id, student_id, answers, difficulty_score, topic_relevance_score, method_relevance_score, additional_note) VALUES($1, $2, $3, $4, $5, $6, $7);", [id, student_id, answers, difficultyScore, topicRelevanceScore, methodRelevanceScore, additionalNote]);
+        await pool.query("INSERT INTO takes(exam_id, student_id, answers, grade, difficulty_score, topic_relevance_score, method_relevance_score, additional_note) VALUES($1, $2, $3, $4, $5, $6, $7, $8);", [id, student_id, answers, grade, difficultyScore, topicRelevanceScore, methodRelevanceScore, additionalNote]);
         return res.status(201).json({ success: true, message: "Sınavınız başarı ile gönderilmiştir. Ana sayfaya yönlendiriliyorsunuz." });
     } catch (error) {
         res.status(500).send({ success: false, message: "Sunucu hatası." });
