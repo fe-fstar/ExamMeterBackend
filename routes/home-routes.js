@@ -423,7 +423,7 @@ router.get("/get_user_information", authorize, async (req, res) => {
 
         let userQuery = await pool.query("SELECT username, email, role FROM users WHERE id = $1;", [userId]);
 
-        res.status(200).json({ success: true, role: userQuery.rows[0] });
+        res.status(200).json({ success: true, user: userQuery.rows[0] });
     } catch (error) {
         console.error(error.message);
         res.status(500).send({ success: false, message: "Sunucu hatası." });
