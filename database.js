@@ -4,7 +4,7 @@ require("dotenv").config();
 const pool = new Pool({
     user: "postgres",
     database: "exammeter",
-    password: "admin",
+    password: process.env.DB_PASSWORD,
     host: "localhost",
     port: "5432"
 });
