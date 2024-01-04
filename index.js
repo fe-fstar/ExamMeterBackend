@@ -7,6 +7,10 @@ const PORT = 4444;
 app.use(express.json());
 app.use(cors());
 
+app.get("/", (_, res) => {
+    res.status(404).send();
+});
+
 app.get("/healthcheck", (_, res) => {
     const data = {
         uptime: process.uptime(),
