@@ -227,8 +227,16 @@ router.put("/exam", authorize, async (req, res) => {
 });
 
 // Retrieve a single exam
-router.get("/exam/:exam_id", async (req, res) => {
+router.get("/exam/:exam_id", authorize, async (req, res) => {
     try {
+        let user_id = req.user;
+
+        await pool.query("SELECT * FROM takes WHERE student_id = $1 AND exam_id = $2", [user_id, exam_id]).then((results)=>{
+            if(results.rows.length > 0){
+                return res.status(200).json({ success: false, message: "Bu sınavı zaten tamamladınız." });
+            }
+        });
+
         let exam_id = req.params["exam_id"];
 
         let exam_query;
@@ -244,6 +252,11 @@ router.get("/exam/:exam_id", async (req, res) => {
         });
 
         let exam = exam_query.rows[0];
+
+        if(new Date().now() > exam.end_time){
+            return res.status(200).json({ success: false, message: "Bu sınavın süresi doldu." });
+        }
+
         let exam_questions = exam_questions_query.rows;
         let exam_options = exam_options_query.rows;
 
