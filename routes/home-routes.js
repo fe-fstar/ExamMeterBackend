@@ -417,13 +417,13 @@ router.post("/submit_exam", authorize, async (req, res) => {
     }
 });
 
-router.get("/get_role", authorize, async (req, res) => {
+router.get("/get_user_information", authorize, async (req, res) => {
     try {
         let userId = req.user;
 
-        let userQuery = await pool.query("SELECT role FROM users WHERE id = $1;", [userId]);
+        let userQuery = await pool.query("SELECT username, email, role FROM users WHERE id = $1;", [userId]);
 
-        res.status(200).json({ success: true, role: userQuery.rows[0].role });
+        res.status(200).json({ success: true, role: userQuery.rows[0] });
     } catch (error) {
         console.error(error.message);
         res.status(500).send({ success: false, message: "Sunucu hatası." });
