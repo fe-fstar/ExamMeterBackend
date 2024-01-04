@@ -140,7 +140,7 @@ router.delete("/exam", authorize, async (req, res) => {
         let teacher_id = req.user;
 
         try {
-            const { id, teacher_id, startsAt } = req.body;
+            const { id, startsAt } = req.body;
 
             if (Date.now() >= new Date(startsAt)) {
                 return res.status(401).json({ success: false, message: "Sınav başladıktan sonra sınavı silemezsiniz." });
@@ -174,15 +174,15 @@ router.delete("/exam", authorize, async (req, res) => {
         });
 });
 
-router.put("/exam", async (req, res) => {
-    async function updateExam(id) {
+router.put("/exam", authorize, async (req, res) => {
+    async function updateExam() {
         const client = await pool.connect();
         try {
-            const { exam_id, questions, className, title, description, startsAt, endsAt, jumpingEnabled, shuffleQuestions, shuffleOptions } = req.body;
+            console.log(req.body);
+            const { id, questions, className, title, description, startTime, endTime, allowJumping, shuffleQuestions, shuffleOptions } = req.body;
 
-            // Check if teacher is allowed to update the exam (they might not be able to because the exam might have already started)
-
-            let original_start_time = await client.query("SELECT start_time FROM exam WHERE id = $1;", [exam_id]);
+            // Check if teacher is allowed to update the exam (they might not be able to because the exam might have already started
+            let original_start_time = await client.query("SELECT start_time FROM exam WHERE id = $1;", [id]);
             if (Date.now() >= new Date(original_start_time.rows[0].start_time)) {
                 return res.status(401).json({ success: false, message: "Sınav başladıktan sonra sınavı güncelleyemezsiniz." });
             }
@@ -191,17 +191,17 @@ router.put("/exam", async (req, res) => {
             // Begin a transaction
             await client.query('BEGIN');
 
-            await client.query("DELETE FROM option WHERE exam_id = $1", [exam_id]);
-            await client.query("DELETE FROM question WHERE exam_id = $1", [exam_id]);
+            await client.query("DELETE FROM option WHERE exam_id = $1", [id]);
+            await client.query("DELETE FROM question WHERE exam_id = $1", [id]);
 
             // Update start time, end time, jumping allowed, shuffle options, shuffle questions, title, class, and description of exam.
-            await client.query("UPDATE exam SET class_name = $1, title = $2, description = $3, start_time = $4, end_time = $5, allow_jumping = $6, shuffle_questions = $7, shuffle_options = $8 WHERE id = $9;", [className, title, description, startsAt, endsAt, jumpingEnabled, shuffleQuestions, shuffleOptions, exam_id]);
+            await client.query("UPDATE exam SET class_name = $1, title = $2, description = $3, start_time = $4, end_time = $5, allow_jumping = $6, shuffle_questions = $7, shuffle_options = $8 WHERE id = $9;", [className, title, description, startTime, endTime, allowJumping, shuffleQuestions, shuffleOptions, id]);
 
             // Add new questions and options.
             for (let q = 0; q < questions.length; ++q) {
-                await client.query("INSERT INTO question(index, exam_id, text, score) VALUES($1, $2, $3, $4)", [q, exam_id, questions[q].text, questions[q].score]);
+                await client.query("INSERT INTO question(index, exam_id, text, score) VALUES($1, $2, $3, $4)", [q, id, questions[q].text, questions[q].score]);
                 for (let o = 0; o < questions[q].options.length; ++o) {
-                    await client.query("INSERT INTO option(exam_id, index, question_index, text, correct_answer) VALUES($1, $2, $3, $4, $5)", [exam_id, o, q, questions[q].options[o].text, questions[q].options[o].isCorrect]);
+                    await client.query("INSERT INTO option(exam_id, index, question_index, text, correct_answer) VALUES($1, $2, $3, $4, $5)", [id, o, q, questions[q].options[o].text, questions[q].options[o].correctAnswer]);
                 }
             }
             // Commit the transaction if all queries were successful
@@ -217,8 +217,8 @@ router.put("/exam", async (req, res) => {
         }
     }
 
-    updateExam(req.user)
-        .then((exam_id) => {
+    updateExam()
+        .then(() => {
             return res.status(200).json({ success: true, message: `Sınav başarı ile güncellendi.` });
         })
         .catch((error) => {
@@ -345,9 +345,6 @@ router.post("/question", async (req, res) => {
 
         questions = questions.sort(function (a, b) { return a.index - b.index });
         options = options.sort(compareOptions);
-
-        console.log("QUESTIONS:", questions);
-        console.log("OPTIONS:", options);
 
         for (let q = 0; q < questions.length; ++q) {
             let questionObj = {
