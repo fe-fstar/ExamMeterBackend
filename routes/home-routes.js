@@ -252,7 +252,7 @@ router.get("/exam/:exam_id", authorize, async (req, res) => {
 
         let exam = exam_query.rows[0];
 
-        if(new Date().now() > exam.end_time){
+        if(Date.now() > exam.end_time){
             return res.status(200).json({ success: false, message: "Bu sınavın süresi doldu." });
         }
 
