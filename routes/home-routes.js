@@ -4,6 +4,7 @@ const bcrypt = require("bcrypt");
 const generateJWT = require("../utils/generate-jwt");
 const validInfo = require("../middleware/valid-info");
 const authorize = require("../middleware/authorize");
+const { getUserRole } = require("../utils/user-utils");
 
 function compareOptions(obj1, obj2) {
     if (obj1.question_index < obj2.question_index) {
@@ -232,6 +233,7 @@ router.get("/exam/:exam_id", authorize, async (req, res) => {
         let user_id = req.user;
         let exam_id = req.params["exam_id"];
         let is_completed = false;
+        let user_role = await getUserRole(user_id);
 
         await pool.query("SELECT * FROM takes WHERE student_id = $1 AND exam_id = $2", [user_id, exam_id]).then((results)=>{
             if(results.rows.length > 0){
@@ -239,7 +241,7 @@ router.get("/exam/:exam_id", authorize, async (req, res) => {
             }
         });
 
-        if(is_completed){
+        if(is_completed && user_role == "student"){
             return res.status(200).json({ success: false, message: "Bu sınavı zaten tamamladınız." });
         }
 
