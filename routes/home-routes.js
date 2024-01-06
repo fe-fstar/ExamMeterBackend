@@ -140,9 +140,9 @@ router.delete("/exam", authorize, async (req, res) => {
         let teacher_id = req.user;
 
         try {
-            const { id, startsAt } = req.body;
+            const { id, startTime } = req.body;
 
-            if (Date.now() >= new Date(startsAt)) {
+            if (Date.now() >= new Date(startTime)) {
                 return res.status(401).json({ success: false, message: "Sınav başladıktan sonra sınavı silemezsiniz." });
             }
 
@@ -170,7 +170,7 @@ router.delete("/exam", authorize, async (req, res) => {
             return res.status(200).json({ success: true, message: `Sınav başarı ile silindi.` });
         })
         .catch((error) => {
-            console.error('Sınavı oluştururken hata oluştu:', error);
+            console.error('Sınavı silerken hata oluştu:', error);
         });
 });
 
@@ -178,7 +178,6 @@ router.put("/exam", authorize, async (req, res) => {
     async function updateExam() {
         const client = await pool.connect();
         try {
-            console.log(req.body);
             const { id, questions, className, title, description, startTime, endTime, allowJumping, shuffleQuestions, shuffleOptions } = req.body;
 
             // Check if teacher is allowed to update the exam (they might not be able to because the exam might have already started
@@ -233,13 +232,13 @@ router.get("/exam/:exam_id", authorize, async (req, res) => {
         let exam_id = req.params["exam_id"];
         let is_completed = false;
 
-        await pool.query("SELECT * FROM takes WHERE student_id = $1 AND exam_id = $2", [user_id, exam_id]).then((results)=>{
-            if(results.rows.length > 0){
+        await pool.query("SELECT * FROM takes WHERE student_id = $1 AND exam_id = $2", [user_id, exam_id]).then((results) => {
+            if (results.rows.length > 0) {
                 is_completed = true;
             }
         });
 
-        if(is_completed){
+        if (is_completed) {
             return res.status(200).json({ success: false, message: "Bu sınavı zaten tamamladınız." });
         }
 
@@ -257,7 +256,7 @@ router.get("/exam/:exam_id", authorize, async (req, res) => {
 
         let exam = exam_query.rows[0];
 
-        if(Date.now() > exam.end_time){
+        if (Date.now() > exam.end_time) {
             return res.status(200).json({ success: false, message: "Bu sınavın süresi doldu." });
         }
 
@@ -321,7 +320,7 @@ router.get("/exam", authorize, async (req, res) => {
         if (user_query.rows[0].role === "student") {
             exam_query = await pool.query("SELECT exam.id, exam.class_name, exam.title, exam.start_time, exam.end_time, takes.grade FROM exam LEFT JOIN takes ON exam.id = takes.exam_id WHERE exam.teacher_id = $1 OR takes.student_id = $1;", [user_id]);
         } else if (user_query.rows[0].role === "teacher") {
-            exam_query = await pool.query("SELECT id, start_time, title, class_name FROM exam WHERE teacher_id = $1;", [user_id]);
+            exam_query = await pool.query("SELECT id, start_time, end_time, title, class_name FROM exam WHERE teacher_id = $1;", [user_id]);
         }
 
         let parsedExams = [];
@@ -332,7 +331,8 @@ router.get("/exam", authorize, async (req, res) => {
                 title: exam.title,
                 className: exam.class_name,
                 id: exam.id,
-                grade: exam.grade
+                grade: exam.grade,
+                endTime: exam.end_time
             };
 
             parsedExams.push(parsedExam);
@@ -352,11 +352,11 @@ router.post("/question", async (req, res) => {
         let questions;
         let options;
         await Promise.all([pool.query("SELECT q.* FROM question q JOIN exam e ON q.exam_id = e.id WHERE e.class_name = $1;", [class_name]),
-                            pool.query("SELECT o.* FROM option o JOIN exam e ON o.exam_id = e.id WHERE e.class_name = $1;", [class_name])])
-                            .then((results) => {
-           questions = results[0].rows;
-           options = results[1].rows; 
-        });
+        pool.query("SELECT o.* FROM option o JOIN exam e ON o.exam_id = e.id WHERE e.class_name = $1;", [class_name])])
+            .then((results) => {
+                questions = results[0].rows;
+                options = results[1].rows;
+            });
 
         let parsedQuestions = [];
 
@@ -376,8 +376,8 @@ router.post("/question", async (req, res) => {
                 options: []
             };
 
-            for(let o = 0; o < options.length; ++o) {
-                if(questions[q].index !== options[o].question_index || questions[q].exam_id !== options[o].exam_id) {
+            for (let o = 0; o < options.length; ++o) {
+                if (questions[q].index !== options[o].question_index || questions[q].exam_id !== options[o].exam_id) {
                     continue;
                 } else {
                     let optionObj = {
@@ -427,6 +427,57 @@ router.get("/get_user_information", authorize, async (req, res) => {
     } catch (error) {
         console.error(error.message);
         res.status(500).send({ success: false, message: "Sunucu hatası." });
+    }
+});
+
+router.post("/stats", authorize, async (req, res) => {
+    const client = await pool.connect();
+    try {
+        let { examId } = req.body;
+        await client.query('BEGIN');
+        let exam_query;
+        let user_query;
+
+        // Check if exam has ended and a teacher is making the request.
+        await Promise.all([client.query("SELECT * FROM exam WHERE id = $1;", [examId]),
+        client.query("SELECT * FROM users WHERE id = $1;", [req.user])]).then((results) => {
+            exam_query = results[0];
+            user_query = results[1];
+        }).catch((error) => {
+            console.error(error.message);
+            return res.status(500).json({ success: false, message: `Sunucu hatası: ${error.message}.` });
+        });
+
+        if (new Date(exam_query.rows[0].end_time <= Date.now())) {
+            return res.status(403).json({ success: false, message: "Sınav henüz bitmedi." });
+        } else if (user_query.rows[0].role !== "teacher") {
+            return res.status(403).json({ success: false, message: "Yalnızca öğretmenler bu sayfaya erişebilir." });
+        }
+
+        let question_query;
+        let option_query;
+        let student_query;
+
+        // Retrieve the exam, questions, options and students who took it.
+        await Promise.all([client.query("SELECT * FROM takes WHERE exam_id = $1;", [examId]),
+        client.query("SELECT * FROM question WHERE exam_id = $1;", [examId]),
+        client.query("SELECT * FROM option WHERE exam_id = $1", [examId])]).then((results) => {
+            student_query = results[0];
+            question_query = results[1];
+            option_query = results[2];
+        }).catch((error) => {
+            console.error(error.message);
+            return res.status(500).json({ success: false, message: `Sunucu hatası: ${error.message}.` });
+        });
+
+        let questions = question_query.rows.sort((a, b) => a.index - b.index);
+        let options = option_query.rows.sort(compareOptions);
+
+        await client.query("COMMIT");
+    } catch (error) {
+        await client.query("ROLLBACK");
+    } finally {
+        await client.release();
     }
 });
 

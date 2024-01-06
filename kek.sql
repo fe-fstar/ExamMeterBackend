@@ -33,6 +33,11 @@ CREATE TABLE IF NOT EXISTS question (
     exam_id UUID REFERENCES exam(id),
     text TEXT,
     score INTEGER,
+    correct_count INTEGER,
+    incorrect_count INTEGER,
+    unanswered_count INTEGER,
+    correct_ratio FLOAT,
+    discrimination_ratio FLOAT,
     PRIMARY KEY (index, exam_id)
 );
 
@@ -42,6 +47,9 @@ CREATE TABLE IF NOT EXISTS option (
     question_index INTEGER,
     text TEXT,
     correct_answer BOOLEAN,
+    frequency INTEGER,
+    frequency_ratio FLOAT,
+    discrimination_ratio FLOAT,
     PRIMARY KEY (index, question_index, exam_id)
 );
 
