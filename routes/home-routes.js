@@ -233,7 +233,7 @@ router.get("/exam/:exam_id", authorize, async (req, res) => {
         let user_id = req.user;
         let exam_id = req.params["exam_id"];
         let is_completed = false;
-        let user_role = await getUserRole(user_id);
+        let user_role = await get_user_role(user_id);
 
         await pool.query("SELECT * FROM takes WHERE student_id = $1 AND exam_id = $2", [user_id, exam_id]).then((results)=>{
             if(results.rows.length > 0){
