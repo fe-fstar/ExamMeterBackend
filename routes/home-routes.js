@@ -4,7 +4,7 @@ const bcrypt = require("bcrypt");
 const generateJWT = require("../utils/generate-jwt");
 const validInfo = require("../middleware/valid-info");
 const authorize = require("../middleware/authorize");
-const { getUserRole } = require("../utils/user-utils");
+const { get_user_role } = require("../utils/user-utils");
 
 function compareOptions(obj1, obj2) {
     if (obj1.question_index < obj2.question_index) {
