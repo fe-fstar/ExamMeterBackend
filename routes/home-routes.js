@@ -59,11 +59,6 @@ router.post("/register", validInfo, async (req, res) => {
         let { role, username, email, password } = req.body;
         let errors = [];
 
-        let username_query = await pool.query("SELECT * FROM users WHERE username = $1;", [username]);
-        if (username_query.rows.length !== 0) {
-            errors.push("Kullanıcı adı zaten alınmış");
-        }
-
         let email_query = await pool.query("SELECT * FROM users WHERE username = $1;", [email]);
         if (email_query.rows.length !== 0) {
             errors.push("E-posta adı zaten alınmış");
