@@ -445,10 +445,10 @@ router.post("/stats", authorize, async (req, res) => {
             return res.status(500).json({ success: false, message: `Sunucu hatası: ${error.message}.` });
         });
 
-        if (new Date(exam_query.rows[0].end_time <= Date.now())) {
+        if (new Date(exam_query.rows[0].end_time) >= Date.now()) {
             return res.status(403).json({ success: false, message: "Sınav henüz bitmedi." });
         } else if (user_query.rows[0].role !== "teacher") {
-            return res.status(403).json({ success: false, message: "Yalnızca öğretmenler bu sayfaya erişebilir." });
+            return res.status(307).json({ success: false, message: "Yalnızca öğretmenler bu sayfaya erişebilir." });
         }
 
         let question_query;
@@ -459,7 +459,7 @@ router.post("/stats", authorize, async (req, res) => {
         await Promise.all([client.query("SELECT * FROM takes WHERE exam_id = $1;", [examId]),
         client.query("SELECT * FROM question WHERE exam_id = $1;", [examId]),
         client.query("SELECT * FROM option WHERE exam_id = $1", [examId])]).then((results) => {
-            student_query = results[0];
+            student_query = results[0].rows;
             question_query = results[1];
             option_query = results[2];
         }).catch((error) => {
@@ -469,6 +469,33 @@ router.post("/stats", authorize, async (req, res) => {
 
         let questions = question_query.rows.sort((a, b) => a.index - b.index);
         let options = option_query.rows.sort(compareOptions);
+
+        // student: 01230---11
+
+        for (let question of questions) {
+            question.correct_count = 0;
+            question.incorrect_count = 0;
+            question.unanswered_count = 0;
+            question.correct_ratio = 0;
+            question.discrimination_ratio = 0;
+            question.options = [];
+            options.forEach((option) => {
+                question.frequency = 0;
+                question.frequency_ratio = 0;
+                question.discrimination_ratio = 0;
+                if (option.question_index == question.index) {
+                    question.options.push(option);
+                }
+            });
+        }
+
+        console.log("#################################");
+        console.log("QUESTIONS:", questions);
+        console.log("#################################");
+
+        console.log("#################################");
+        console.log("STUDENT ANSWERS:", student_query);
+        console.log("#################################");
 
         await client.query("COMMIT");
     } catch (error) {
