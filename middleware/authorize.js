@@ -6,7 +6,7 @@ module.exports = async (req, res, next) => {
         let jwt_token = req.header("token");
 
         if(!jwt_token) {
-            return res.status(403).send({ success: false, message: "Yetki yok." });
+            return res.status(403).json({ success: false, message: "Yetki yok." });
         }
 
         const payload = jwt.verify(jwt_token, process.env.JWT_SECRET);
@@ -16,6 +16,6 @@ module.exports = async (req, res, next) => {
         next();
     } catch (error) {
         console.error(error.message);
-        return res.status(403).send({ success: false, message: "Yetki yok ya da sunucu hatası." });
+        return res.status(403).json({ success: false, message: "Yetki yok ya da sunucu hatası." });
     }
 }

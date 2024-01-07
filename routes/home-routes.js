@@ -117,7 +117,7 @@ router.post("/exam", authorize, async (req, res) => {
             // If an error occurs, roll back the transaction to maintain data consistency
             await client.query('ROLLBACK');
             console.error(error.message);
-            res.status(500).send({ success: false, message: "Sunucu hatası." });
+            res.status(500).json({ success: false, message: "Sunucu hatası." });
         } finally {
             // Release the client back to the pool
             client.release();
@@ -159,7 +159,7 @@ router.delete("/exam", authorize, async (req, res) => {
             // If an error occurs, roll back the transaction to maintain data consistency
             await client.query('ROLLBACK');
             console.error(error.message);
-            return res.status(500).send({ success: false, message: "Sunucu hatası." });
+            return res.status(500).json({ success: false, message: "Sunucu hatası." });
         } finally {
             // Release the client back to the pool
             client.release();
@@ -210,7 +210,7 @@ router.put("/exam", authorize, async (req, res) => {
             // If an error occurs, roll back the transaction to maintain data consistency
             await client.query('ROLLBACK');
             console.error(error.message);
-            return res.status(500).send({ success: false, message: "Sunucu hatası." });
+            return res.status(500).json({ success: false, message: "Sunucu hatası." });
         } finally {
             // Release the client back to the pool
             client.release();
@@ -306,7 +306,7 @@ router.get("/exam/:exam_id", authorize, async (req, res) => {
         return res.status(200).json({ success: true, exam });
     } catch (error) {
         console.error("Sınav bilgisini toplarken hata oluştu:", error.message);
-        return res.status(500).send({ success: false, message: "Sunucu hatası." });
+        return res.status(500).json({ success: false, message: "Sunucu hatası." });
     }
 });
 
@@ -343,7 +343,7 @@ router.get("/exam", authorize, async (req, res) => {
         return res.status(200).json({ success: true, exams: parsedExams });
     } catch (error) {
         console.error("Sınav listesini getirirken hata oluştu:", error.message);
-        return res.status(500).send({ success: false, message: "Sunucu hatası." });
+        return res.status(500).json({ success: false, message: "Sunucu hatası." });
     }
 });
 
@@ -409,13 +409,13 @@ router.post("/question", async (req, res) => {
 
 router.post("/submit_exam", authorize, async (req, res) => {
     let student_id = req.user;
-    let { id, grade, answers, topicRelevanceScore, methodRelevanceScore, difficultyScore, additionalNote } = req.body;
+    let { id, answers, topicRelevanceScore, methodRelevanceScore, difficultyScore, additionalNote } = req.body;
 
     try {
-        await pool.query("INSERT INTO takes(exam_id, student_id, answers, grade, difficulty_score, topic_relevance_score, method_relevance_score, additional_note) VALUES($1, $2, $3, $4, $5, $6, $7, $8);", [id, student_id, answers, grade, difficultyScore, topicRelevanceScore, methodRelevanceScore, additionalNote]);
+        await pool.query("INSERT INTO takes(exam_id, student_id, answers, difficulty_score, topic_relevance_score, method_relevance_score, additional_note) VALUES($1, $2, $3, $4, $5, $6, $7);", [id, student_id, answers, difficultyScore, topicRelevanceScore, methodRelevanceScore, additionalNote]);
         return res.status(201).json({ success: true, message: "Sınavınız başarı ile gönderilmiştir. Ana sayfaya yönlendiriliyorsunuz." });
     } catch (error) {
-        res.status(500).send({ success: false, message: "Sunucu hatası." });
+        res.status(500).json({ success: false, message: "Sunucu hatası." });
     }
 });
 
@@ -428,7 +428,7 @@ router.get("/get_user_information", authorize, async (req, res) => {
         res.status(200).json({ success: true, user: userQuery.rows[0] });
     } catch (error) {
         console.error(error.message);
-        res.status(500).send({ success: false, message: "Sunucu hatası." });
+        res.status(500).json({ success: false, message: "Sunucu hatası." });
     }
 });
 
@@ -489,7 +489,7 @@ router.get("/verify", authorize, async (req, res) => {
         res.status(200).json({ success: true });
     } catch (error) {
         console.error(error.message);
-        res.status(500).send({ success: true, message: "Sunucu hatası." });
+        res.status(500).json({ success: true, message: "Sunucu hatası." });
     }
 });
 
