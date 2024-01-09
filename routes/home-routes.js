@@ -480,24 +480,128 @@ router.post("/stats", authorize, async (req, res) => {
             question.discrimination_ratio = 0;
             question.options = [];
             options.forEach((option) => {
-                question.frequency = 0;
-                question.frequency_ratio = 0;
-                question.discrimination_ratio = 0;
+                option.frequency = 0;
+                option.frequency_ratio = 0;
+                option.discrimination_ratio = 0;
                 if (option.question_index == question.index) {
                     question.options.push(option);
                 }
             });
         }
 
+        student_query.forEach((student) => {
+            student.questionData = [];
+            student.grade = 0;
+        });
+
+        questions.forEach((question, questionIndex) => {
+            question.studentsSelectedOptions = [];
+            question.studentsSelectedOptionsCorrectnesses = [];
+            student_query.forEach((student, studentIndex) => {
+                let studentSelectionData = {};
+                studentSelectionData.questionIndex = question.index;
+                studentSelectionData.selectedOption = student.answers.charAt(questionIndex);
+                question.studentsSelectedOptions.push(student.answers.charAt(questionIndex) === "-" ? " " : Number(student.answers.charAt(questionIndex)));
+                let correctAnswerIndex = question.options.findIndex((obj) => obj.correct_answer);
+                studentSelectionData.correctOption = question.options[correctAnswerIndex].index;
+                student.questionData.push(studentSelectionData);
+                if (student.answers.charAt(questionIndex) == "-") {
+                    question.studentsSelectedOptionsCorrectnesses.push(" ");
+                    ++question.unanswered_count;
+                } else {
+                    ++question.options[Number(student.answers.charAt(questionIndex))].frequency;
+                    if (student.answers.charAt(questionIndex) == correctAnswerIndex) {
+                        question.studentsSelectedOptionsCorrectnesses.push(true);
+                        ++question.correct_count;
+                        student.grade += question.score;
+                    } else {
+                        question.studentsSelectedOptionsCorrectnesses.push(false);
+                        ++question.incorrect_count;
+                    }
+                }
+
+                student.numberOfCorrectAnswers = student.questionData.filter((obj) => obj.selectedOption == obj.correctOption).length;
+            });
+            question.correct_ratio = Math.round(question.correct_count / (question.correct_count + question.incorrect_count + question.unanswered_count) * 100) / 100;
+            question.options.forEach((option) => {
+                option.frequency_ratio = Math.round(option.frequency / (question.correct_count + question.incorrect_count) * 100) / 100;
+            });
+        });
+
+        // CALCULATE THE CORRELATION COEFFICIENT OF QUESTIONS
+        questions.forEach((question, questionIndex) => {
+            let sumOfGlobalCorrectAnswers = 0;
+            let sumOfQuestionCorrectAnswers = 0;
+            let xbar_question;
+            let ybar;
+
+            student_query.forEach((student, studentIndex) => {
+                sumOfGlobalCorrectAnswers += student.numberOfCorrectAnswers;
+                if (student.questionData[questionIndex].selectedOption == student.questionData[questionIndex].correctOption) {
+                    ++sumOfQuestionCorrectAnswers
+                }
+            });
+
+            xbar_question = sumOfGlobalCorrectAnswers / student_query.length;
+            ybar = sumOfQuestionCorrectAnswers / student_query.length;
+
+            question.options.forEach((option, optionIndex) => {
+                let sumOfOptionSelected = 0;
+                let xbar_option;
+
+                student_query.forEach((student, studentIndex) => {
+                    let foundIndex = student.questionData.findIndex((obj) => obj.questionIndex === questionIndex);
+                    sumOfOptionSelected += student.questionData[foundIndex].selectedOption == option.index ? 1 : 0;
+                });
+
+                xbar_option = sumOfOptionSelected / student_query.length;
+
+                // (Xi - Xbar) (Yi - Ybar)
+                // sqrt((Xi - Xbar) ** 2 * (Xi - Ybar) ** 2)
+
+                let sum_xi_minus_xbar_times_yi_minus_ybar = 0;
+                let sum_yi_minus_ybar_squared = 0;
+                let sum_xi_minus_xbar_squared = 0;
+
+                student_query.forEach((student, studentIndex) => {
+                    let xi = student.questionData[questionIndex].selectedOption == option.index ? 1 : 0;
+                    sum_xi_minus_xbar_times_yi_minus_ybar += (xi - xbar_option) * (student.numberOfCorrectAnswers - ybar);
+                    sum_xi_minus_xbar_squared += Math.pow(xi - xbar_option, 2);
+                    sum_yi_minus_ybar_squared += Math.pow(student.numberOfCorrectAnswers - ybar, 2);
+                });
+
+                option.discrimination_ratio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_xi_minus_xbar_squared * sum_xi_minus_xbar_times_yi_minus_ybar)) ? 0 : Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_xi_minus_xbar_squared * sum_xi_minus_xbar_times_yi_minus_ybar) * 100) / 100;
+            });
+
+            // (Xi - Xbar) (Yi - Ybar)
+            // sqrt((Xi - Xbar) ** 2 * (Xi - Ybar) ** 2)
+            let sum_xi_minus_xbar_times_yi_minus_ybar = 0;
+            let sum_yi_minus_ybar_squared = 0;
+            let sum_xi_minus_xbar_squared = 0;
+
+            student_query.forEach((student, studentIndex) => {
+                let xi = student.questionData[questionIndex].selectedOption == student.questionData[questionIndex].correctOption ? 1 : 0;
+                sum_xi_minus_xbar_times_yi_minus_ybar += (xi - xbar_question) * (student.numberOfCorrectAnswers - ybar);
+                sum_xi_minus_xbar_squared += Math.pow(xi - xbar_question, 2);
+                sum_yi_minus_ybar_squared += Math.pow(student.numberOfCorrectAnswers - ybar, 2);
+            });
+
+            question.discriminationRatio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared)) ? 0 : Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared) * 100) / 100;
+        });
+
         console.log("#################################");
         console.log("QUESTIONS:", questions);
         console.log("#################################");
 
-        console.log("#################################");
-        console.log("STUDENT ANSWERS:", student_query);
-        console.log("#################################");
+        // console.log("#################################");
+        // console.log("STUDENT ANSWERS:", student_query);
+        // console.log("#################################");
+
+        console.log(questions[3].options);
+        // console.log(student_query[2].questionData);
 
         await client.query("COMMIT");
+        return res.status(201).json({ success: true, questions, students: student_query });
     } catch (error) {
         await client.query("ROLLBACK");
     } finally {
