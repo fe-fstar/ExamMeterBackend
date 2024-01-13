@@ -75,7 +75,7 @@ router.post("/register", validInfo, async (req, res) => {
         let new_user = await pool.query("INSERT INTO users(role, username, email, password) VALUES($1, $2, $3, $4) RETURNING *;", [role, username, email, bcrypt_password]);
 
         const token = generateJWT(new_user.rows[0].id);
-        res.status(201).json({ success: true, token });
+        res.status(201).json({ success: true, message: "Kullanıcı başarı ile oluştu." });
     } catch (error) {
         console.error(error.message);
         res.status(500).json({ success: false, message: "Sunucu hatası." });
@@ -402,6 +402,65 @@ router.post("/question", async (req, res) => {
     }
 });
 
+router.post("/question_plus_difficulties", authorize, async (req, res) => {
+    try {
+        let class_name = req.body.class_name;
+        let difficulty = req.body.difficulty;
+        let tolerance = req.body.tolerance;
+        let questions;
+        let options;
+        questions = await pool.query("SELECT q.* FROM question q JOIN exam e ON q.exam_id = e.id WHERE e.class_name = $1 AND ((1 - (q.correct_count / (q.correct_count + q.incorrect_count + q.unanswered_count))) * 10 + $3 > $2 OR (1 - (q.correct_count / (q.correct_count + q.incorrect_count + q.unanswered_count))) * 10 - $3 < $2);", [class_name, difficulty, tolerance]);
+        options = await pool.query("SELECT o.* FROM option o JOIN exam e ON o.exam_id = e.id WHERE e.class_name = $1;", [class_name]);
+        questions = questions.rows;
+        options = options.rows;
+
+        let parsedQuestions = [];
+
+        questions = questions.sort(function (a, b) { return a.index - b.index });
+        options = options.sort(compareOptions);
+
+        for (let q = 0; q < questions.length; ++q) {
+            let questionObj = {
+                index: questions[q].index,
+                examId: questions[q].exam_id,
+                text: questions[q].text,
+                correctCount: questions[q].correct_count,
+                incorrectCount: questions[q].incorrect_count,
+                unansweredCount: questions[q].unanswered_count,
+                correctRatio: questions[q].correct_ratio,
+                discriminationRatio: questions[q].discrimination_ratio,
+                options: []
+            };
+
+            for (let o = 0; o < options.length; ++o) {
+                let optionObj = {
+                    index: options[o].index,
+                    examId: options[o].exam_id,
+                    questionIndex: options[o].question_index,
+                    text: options[o].text,
+                    correctAnswer: options[o].correct_answer,
+                    frequency: options[o].frequency,
+                    frequencyRatio: options[o].frequency_ratio,
+                    discriminationRatio: options[o].discrimination_ratio
+                };
+                if (questionObj.index === optionObj.questionIndex && questionObj.examId === optionObj.examId && !questionObj.options.includes(optionObj)) {
+                    questionObj.options.push(optionObj);
+                }
+            }
+
+            parsedQuestions.push(questionObj);
+        }
+
+        if (parsedQuestions.length === 0) {
+            return res.status(200).json({ success: true, message: "Belirlenen kriterlere göre soru bulunamadı.", questions: parsedQuestions });
+        } else {
+            return res.status(200).json({ success: true, message: "Sorular başarıyla getirildi.", questions: parsedQuestions });
+        }
+    } catch (error) {
+
+    }
+});
+
 router.post("/submit_exam", authorize, async (req, res) => {
     let student_id = req.user;
     let { id, answers, topicRelevanceScore, methodRelevanceScore, difficultyScore, additionalNote } = req.body;
@@ -454,6 +513,15 @@ router.post("/stats", authorize, async (req, res) => {
         let question_query;
         let option_query;
         let student_query;
+        let mean;
+        let meanMethodRelevanceScore = 0;
+        let meanTopicRelevanceScore = 0;
+        let meanDifficultyScore = 0;
+        let gradesList = [];
+        let difficultyScoreList = [];
+        let topicRelevanceScoreList = [];
+        let methodRelevanceScoreList = [];
+
 
         // Retrieve the exam, questions, options and students who took it.
         await Promise.all([client.query("SELECT * FROM takes WHERE exam_id = $1;", [examId]),
@@ -477,7 +545,7 @@ router.post("/stats", authorize, async (req, res) => {
             question.incorrect_count = 0;
             question.unanswered_count = 0;
             question.correct_ratio = 0;
-            question.discrimination_ratio = 0;
+            question.discriminationRatio = 0;
             question.options = [];
             options.forEach((option) => {
                 option.frequency = 0;
@@ -490,9 +558,19 @@ router.post("/stats", authorize, async (req, res) => {
         }
 
         student_query.forEach((student) => {
+            meanDifficultyScore += student.difficulty_score;
+            meanTopicRelevanceScore += student.topic_relevance_score;
+            meanMethodRelevanceScore += student.method_relevance_score;
+            difficultyScoreList.push(student.difficulty_score);
+            topicRelevanceScoreList.push(student.topic_relevance_score);
+            methodRelevanceScoreList.push(student.method_relevance_score);
             student.questionData = [];
             student.grade = 0;
         });
+
+        meanDifficultyScore /= student_query.length;
+        meanMethodRelevanceScore /= student_query.length;
+        meanTopicRelevanceScore /= student_query.length;
 
         questions.forEach((question, questionIndex) => {
             question.studentsSelectedOptions = [];
@@ -527,6 +605,14 @@ router.post("/stats", authorize, async (req, res) => {
                 option.frequency_ratio = Math.round(option.frequency / (question.correct_count + question.incorrect_count) * 100) / 100;
             });
         });
+
+        mean = 0;
+
+        student_query.forEach((student) => {
+            gradesList.push(student.grade);
+            mean += student.grade;
+        });
+        mean /= student_query.length;
 
         // CALCULATE THE CORRELATION COEFFICIENT OF QUESTIONS
         questions.forEach((question, questionIndex) => {
@@ -587,21 +673,54 @@ router.post("/stats", authorize, async (req, res) => {
             });
 
             question.discriminationRatio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared)) ? 0 : Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared) * 100) / 100;
+
+            if (question.discriminationRatio <= 0.2)
+                question.discriminationStatus = 'Madde çok zayıf, testten çıkarılmalı';
+            else if (correlation <= 0.3)
+                question.discriminationStatus = 'Madde düzeltildikten sonra teste alınmalı';
+            else if (correlation <= 0.4)
+                question.discriminationStatus = 'Madde ayırt ediciliği iyi';
+            else if (correlation <= 1)
+                question.discriminationStatus = 'Madde ayırt ediciliği mükemmel';
+
+            if (question.correct_ratio <= 0.2)
+                question.difficultyMessage = 'Çok zor';
+            else if (question.correct_ratio <= 0.4)
+                question.difficultyMessage = 'Zor';
+            else if (question.correct_ratio <= 0.6)
+                question.difficultyMessage = 'Orta güçlük';
+            else if (question.correct_ratio <= 0.8)
+                question.difficultyMessage = 'Kolay';
+            else if (question.correct_ratio <= 1)
+                question.difficultyMessage = 'Çok kolay';
         });
 
-        console.log("#################################");
-        console.log("QUESTIONS:", questions);
-        console.log("#################################");
+        questions.forEach(async (question) => {
+            await pool.query("UPDATE question SET correct_count = $1, incorrect_count = $2, unanswered_count = $3, discrimination_ratio = $4 WHERE exam_id = $5 AND index = $6;", [question.correct_count, question.incorrect_count, question.unanswered_count, question.discriminationRatio, examId, question.index]);
+            question.options.forEach(async (option) => {
+                await pool.query("UPDATE option SET frequency = $1, frequency_ratio = $2, discrimination_ratio = $3 WHERE exam_id = $4 AND index = $5 AND question_index = $6;", [option.frequency, option.frequency_ratio, option.discrimination_ratio, examId, option.index, question.index]);
+            });
+        });
+
+        let std_deviation = 0;
+        student_query.forEach((student) => {
+            std_deviation += Math.pow(student.grade - mean, 2);
+        });
+        std_deviation = Math.sqrt(std_deviation / student_query.length);
+
+        // console.log("#################################");
+        // console.log("QUESTIONS:", questions);
+        // console.log("#################################");
 
         // console.log("#################################");
         // console.log("STUDENT ANSWERS:", student_query);
         // console.log("#################################");
 
-        console.log(questions[3].options);
+        // console.log(questions[3].options);
         // console.log(student_query[2].questionData);
 
         await client.query("COMMIT");
-        return res.status(201).json({ success: true, questions, students: student_query });
+        return res.status(201).json({ success: true, gradesList, questions, students: student_query, mean, std_deviation, meanDifficultyScore, meanMethodRelevanceScore, meanTopicRelevanceScore, methodRelevanceScoreList, topicRelevanceScoreList, difficultyScoreList });
     } catch (error) {
         await client.query("ROLLBACK");
     } finally {

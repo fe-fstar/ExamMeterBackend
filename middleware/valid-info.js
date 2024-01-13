@@ -9,11 +9,11 @@ module.exports = (req, res, next) => {
             return res.status(401).json({ success: false, message: "Lütfen bütün alanları doldurun." });
         }
     } else if (req.path === "/register") {
-        const { username, email, password } = req.body;
+        const { username, email, password, role } = req.body;
         if (!validEmail(email)) {
             return res.status(401).json({ success: false, message: "Bu geçerli bir e-posta değil." });
         }
-        if (![username, email, password].every(Boolean)) {
+        if (![username, email, password, role].every(Boolean)) {
             return res.status(401).json({ success: false, message: "Lütfen bütün alanları doldurun." });
         }
     }
