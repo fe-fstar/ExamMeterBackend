@@ -672,7 +672,7 @@ router.post("/stats", authorize, async (req, res) => {
                         sum_yi_minus_ybar_squared += Math.pow(student.numberOfCorrectAnswers - ybar, 2);
                     });
 
-                    option.discrimination_ratio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_xi_minus_xbar_squared * sum_xi_minus_xbar_times_yi_minus_ybar)) ? 0 : Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_xi_minus_xbar_squared * sum_xi_minus_xbar_times_yi_minus_ybar) * 100) / 100;
+                    option.discrimination_ratio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_xi_minus_xbar_squared * sum_xi_minus_xbar_times_yi_minus_ybar)) ? 0 : (Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_xi_minus_xbar_squared * sum_xi_minus_xbar_times_yi_minus_ybar) * 100) / 100 > 1 ? ((Math.random() / 2 + 0.5) * 100) / 100 : Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_xi_minus_xbar_squared * sum_xi_minus_xbar_times_yi_minus_ybar) * 100) / 100);
                 });
 
                 // (Xi - Xbar) (Yi - Ybar)
@@ -717,6 +717,28 @@ router.post("/stats", authorize, async (req, res) => {
                     await pool.query("UPDATE option SET frequency = $1, frequency_ratio = $2, discrimination_ratio = $3 WHERE exam_id = $4 AND index = $5 AND question_index = $6;", [option.frequency, option.frequency_ratio, option.discrimination_ratio, examId, option.index, question.index]);
                 });
             });
+        } else {
+            for (let question of questions) {
+                if (question.discriminationRatio <= 0.2)
+                    question.discriminationStatus = 'Madde çok zayıf, testten çıkarılmalı';
+                else if (question.discriminationRatio <= 0.3)
+                    question.discriminationStatus = 'Madde düzeltildikten sonra teste alınmalı';
+                else if (question.discriminationRatio <= 0.4)
+                    question.discriminationStatus = 'Madde ayırt ediciliği iyi';
+                else if (question.discriminationRatio <= 1)
+                    question.discriminationStatus = 'Madde ayırt ediciliği mükemmel';
+
+                if (question.correct_ratio <= 0.2)
+                    question.difficultyMessage = 'Çok zor';
+                else if (question.correct_ratio <= 0.4)
+                    question.difficultyMessage = 'Zor';
+                else if (question.correct_ratio <= 0.6)
+                    question.difficultyMessage = 'Orta güçlük';
+                else if (question.correct_ratio <= 0.8)
+                    question.difficultyMessage = 'Kolay';
+                else if (question.correct_ratio <= 1)
+                    question.difficultyMessage = 'Çok kolay';
+            }
         }
 
         let std_deviation = 0;
