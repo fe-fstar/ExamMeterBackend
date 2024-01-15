@@ -605,17 +605,20 @@ router.post("/stats", authorize, async (req, res) => {
             });
         });
 
-        student_query.forEach(async (student) => {
-            await client.query("UPDATE takes SET grade=$1 WHERE student_id=$2 AND exam_id=$3", [student.grade, student.student_id, examId]);
+        student_query.forEach((student) => {
+            client.query("UPDATE takes SET grade=$1 WHERE student_id=$2 AND exam_id=$3", [student.grade, student.student_id, examId]);
             gradesList.push(student.grade);
         });
         
+
+        console.log("#############")
         console.log(gradesList);
         console.log(gradesList.length);
         const sumOfGrades = gradesList.reduce((a, b) => a + b, 0);
         console.log(sumOfGrades);
         const mean = (sumOfGrades / gradesList.length) || 0
         console.log(mean);
+        console.log("#############")
 
         // CALCULATE THE CORRELATION COEFFICIENT OF QUESTIONS
         questions.forEach((question, questionIndex) => {
