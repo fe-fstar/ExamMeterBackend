@@ -503,8 +503,8 @@ router.post("/stats", authorize, async (req, res) => {
             console.error(error.message);
             return res.status(500).json({ success: false, message: `Sunucu hatası: ${error.message}.` });
         });
-
-        if (new Date(exam_query.rows[0].end_time) >= Date.now()) {
+,
+        if (new Date(exam_query.rows[0].endTime).getTime() + new Date(exam_query.rows[0].endTime).getTimezoneOffset() * 60000 >= Date.now()) {
             return res.status(403).json({ success: false, message: "Sınav henüz bitmedi." });
         } else if (user_query.rows[0].role !== "teacher") {
             return res.status(307).json({ success: false, message: "Yalnızca öğretmenler bu sayfaya erişebilir." });
