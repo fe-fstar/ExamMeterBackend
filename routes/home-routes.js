@@ -409,7 +409,7 @@ router.post("/question_plus_difficulties", authorize, async (req, res) => {
         let tolerance = req.body.tolerance;
         let questions;
         let options;
-        questions = await pool.query("SELECT q.* FROM question q JOIN exam e ON q.exam_id = e.id WHERE e.class_name = $1 AND ((1 - (q.correct_count / (q.correct_count + q.incorrect_count + q.unanswered_count))) * 10 + $3 > $2 OR (1 - (q.correct_count / (q.correct_count + q.incorrect_count + q.unanswered_count))) * 10 - $3 < $2);", [class_name, difficulty, tolerance]);
+        questions = await pool.query("SELECT q.* FROM question q JOIN exam e ON q.exam_id = e.id WHERE e.class_name = $1 AND (1 - q.correct_ratio) * 10 + $3 > $2 OR (1 - q.correct_ratio) * 10 - $3 < $2);", [class_name, difficulty, tolerance]);
         options = await pool.query("SELECT o.* FROM option o JOIN exam e ON o.exam_id = e.id WHERE e.class_name = $1;", [class_name]);
         questions = questions.rows;
         options = options.rows;
@@ -611,14 +611,8 @@ router.post("/stats", authorize, async (req, res) => {
         });
         
 
-        console.log("#############")
-        console.log(gradesList);
-        console.log(gradesList.length);
         const sumOfGrades = gradesList.reduce((a, b) => a + b, 0);
-        console.log(sumOfGrades);
         const mean = (sumOfGrades / gradesList.length) || 0
-        console.log(mean);
-        console.log("#############")
 
         // CALCULATE THE CORRELATION COEFFICIENT OF QUESTIONS
         questions.forEach((question, questionIndex) => {
@@ -702,7 +696,7 @@ router.post("/stats", authorize, async (req, res) => {
         });
 
         questions.forEach(async (question) => {
-            await pool.query("UPDATE question SET correct_count = $1, incorrect_count = $2, unanswered_count = $3, discrimination_ratio = $4 WHERE exam_id = $5 AND index = $6;", [question.correct_count, question.incorrect_count, question.unanswered_count, question.discriminationRatio, examId, question.index]);
+            await pool.query("UPDATE question SET correct_count = $1, incorrect_count = $2, unanswered_count = $3, discrimination_ratio = $4, correct_ratio = $5 WHERE exam_id = $6 AND index = $7;", [question.correct_count, question.incorrect_count, question.unanswered_count, question.discriminationRatio, question.correct_ratio, examId, question.index]);
             question.options.forEach(async (option) => {
                 await pool.query("UPDATE option SET frequency = $1, frequency_ratio = $2, discrimination_ratio = $3 WHERE exam_id = $4 AND index = $5 AND question_index = $6;", [option.frequency, option.frequency_ratio, option.discrimination_ratio, examId, option.index, question.index]);
             });
