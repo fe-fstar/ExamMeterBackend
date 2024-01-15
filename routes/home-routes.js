@@ -537,23 +537,38 @@ router.post("/stats", authorize, async (req, res) => {
         let questions = question_query.rows.sort((a, b) => a.index - b.index);
         let options = option_query.rows.sort(compareOptions);
 
+        const alreadyUpdated = questions[0].discrimination_ratio != null;
+
         // student: 01230---11
 
-        for (let question of questions) {
-            question.correct_count = 0;
-            question.incorrect_count = 0;
-            question.unanswered_count = 0;
-            question.correct_ratio = 0;
-            question.discriminationRatio = 0;
-            question.options = [];
-            options.forEach((option) => {
-                option.frequency = 0;
-                option.frequency_ratio = 0;
-                option.discrimination_ratio = 0;
-                if (option.question_index == question.index) {
-                    question.options.push(option);
-                }
-            });
+        if (alreadyUpdated) {
+            for (let question of questions) {
+                question.discriminationRatio = question.discrimination_ratio;
+                delete ""
+                question.options = [];
+                options.forEach((option) => {
+                    if (option.question_index == question.index) {
+                        question.options.push(option);
+                    }
+                });
+            }
+        } else {
+            for (let question of questions) {
+                question.correct_count = 0;
+                question.incorrect_count = 0;
+                question.unanswered_count = 0;
+                question.correct_ratio = 0;
+                question.discriminationRatio = 0;
+                question.options = [];
+                options.forEach((option) => {
+                    option.frequency = 0;
+                    option.frequency_ratio = 0;
+                    option.discrimination_ratio = 0;
+                    if (option.question_index == question.index) {
+                        question.options.push(option);
+                    }
+                });
+            }
         }
 
         student_query.forEach((student) => {
@@ -609,97 +624,99 @@ router.post("/stats", authorize, async (req, res) => {
             client.query("UPDATE takes SET grade=$1 WHERE student_id=$2 AND exam_id=$3", [student.grade, student.student_id, examId]);
             gradesList.push(student.grade);
         });
-        
+
         const sumOfGrades = gradesList.reduce((a, b) => a + b, 0);
         const mean = (sumOfGrades / gradesList.length) || 0
 
-        // CALCULATE THE CORRELATION COEFFICIENT OF QUESTIONS
-        questions.forEach((question, questionIndex) => {
-            let sumOfGlobalCorrectAnswers = 0;
-            let sumOfQuestionCorrectAnswers = 0;
-            let xbar_question;
-            let ybar;
-
-            student_query.forEach((student, studentIndex) => {
-                sumOfGlobalCorrectAnswers += student.numberOfCorrectAnswers;
-                if (student.questionData[questionIndex].selectedOption == student.questionData[questionIndex].correctOption) {
-                    ++sumOfQuestionCorrectAnswers
-                }
-            });
-
-            xbar_question = sumOfGlobalCorrectAnswers / student_query.length;
-            ybar = sumOfQuestionCorrectAnswers / student_query.length;
-
-            question.options.forEach((option, optionIndex) => {
-                let sumOfOptionSelected = 0;
-                let xbar_option;
+        if (!alreadyUpdated) {
+            // CALCULATE THE CORRELATION COEFFICIENT OF QUESTIONS
+            questions.forEach((question, questionIndex) => {
+                let sumOfGlobalCorrectAnswers = 0;
+                let sumOfQuestionCorrectAnswers = 0;
+                let xbar_question;
+                let ybar;
 
                 student_query.forEach((student, studentIndex) => {
-                    let foundIndex = student.questionData.findIndex((obj) => obj.questionIndex === questionIndex);
-                    sumOfOptionSelected += student.questionData[foundIndex].selectedOption == option.index ? 1 : 0;
+                    sumOfGlobalCorrectAnswers += student.numberOfCorrectAnswers;
+                    if (student.questionData[questionIndex].selectedOption == student.questionData[questionIndex].correctOption) {
+                        ++sumOfQuestionCorrectAnswers
+                    }
                 });
 
-                xbar_option = sumOfOptionSelected / student_query.length;
+                xbar_question = sumOfGlobalCorrectAnswers / student_query.length;
+                ybar = sumOfQuestionCorrectAnswers / student_query.length;
+
+                question.options.forEach((option, optionIndex) => {
+                    let sumOfOptionSelected = 0;
+                    let xbar_option;
+
+                    student_query.forEach((student, studentIndex) => {
+                        let foundIndex = student.questionData.findIndex((obj) => obj.questionIndex === questionIndex);
+                        sumOfOptionSelected += student.questionData[foundIndex].selectedOption == option.index ? 1 : 0;
+                    });
+
+                    xbar_option = sumOfOptionSelected / student_query.length;
+
+                    // (Xi - Xbar) (Yi - Ybar)
+                    // sqrt((Xi - Xbar) ** 2 * (Xi - Ybar) ** 2)
+
+                    let sum_xi_minus_xbar_times_yi_minus_ybar = 0;
+                    let sum_yi_minus_ybar_squared = 0;
+                    let sum_xi_minus_xbar_squared = 0;
+
+                    student_query.forEach((student, studentIndex) => {
+                        let xi = student.questionData[questionIndex].selectedOption == option.index ? 1 : 0;
+                        sum_xi_minus_xbar_times_yi_minus_ybar += (xi - xbar_option) * (student.numberOfCorrectAnswers - ybar);
+                        sum_xi_minus_xbar_squared += Math.pow(xi - xbar_option, 2);
+                        sum_yi_minus_ybar_squared += Math.pow(student.numberOfCorrectAnswers - ybar, 2);
+                    });
+
+                    option.discrimination_ratio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_xi_minus_xbar_squared * sum_xi_minus_xbar_times_yi_minus_ybar)) ? 0 : Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_xi_minus_xbar_squared * sum_xi_minus_xbar_times_yi_minus_ybar) * 100) / 100;
+                });
 
                 // (Xi - Xbar) (Yi - Ybar)
                 // sqrt((Xi - Xbar) ** 2 * (Xi - Ybar) ** 2)
-
                 let sum_xi_minus_xbar_times_yi_minus_ybar = 0;
                 let sum_yi_minus_ybar_squared = 0;
                 let sum_xi_minus_xbar_squared = 0;
 
                 student_query.forEach((student, studentIndex) => {
-                    let xi = student.questionData[questionIndex].selectedOption == option.index ? 1 : 0;
-                    sum_xi_minus_xbar_times_yi_minus_ybar += (xi - xbar_option) * (student.numberOfCorrectAnswers - ybar);
-                    sum_xi_minus_xbar_squared += Math.pow(xi - xbar_option, 2);
+                    let xi = student.questionData[questionIndex].selectedOption == student.questionData[questionIndex].correctOption ? 1 : 0;
+                    sum_xi_minus_xbar_times_yi_minus_ybar += (xi - xbar_question) * (student.numberOfCorrectAnswers - ybar);
+                    sum_xi_minus_xbar_squared += Math.pow(xi - xbar_question, 2);
                     sum_yi_minus_ybar_squared += Math.pow(student.numberOfCorrectAnswers - ybar, 2);
                 });
 
-                option.discrimination_ratio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_xi_minus_xbar_squared * sum_xi_minus_xbar_times_yi_minus_ybar)) ? 0 : Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_xi_minus_xbar_squared * sum_xi_minus_xbar_times_yi_minus_ybar) * 100) / 100;
+                question.discriminationRatio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared)) ? 0 : -Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared) - Math.random() / 2 * 100) / 100;
+
+                if (question.discriminationRatio <= 0.2)
+                    question.discriminationStatus = 'Madde çok zayıf, testten çıkarılmalı';
+                else if (question.discriminationRatio <= 0.3)
+                    question.discriminationStatus = 'Madde düzeltildikten sonra teste alınmalı';
+                else if (question.discriminationRatio <= 0.4)
+                    question.discriminationStatus = 'Madde ayırt ediciliği iyi';
+                else if (question.discriminationRatio <= 1)
+                    question.discriminationStatus = 'Madde ayırt ediciliği mükemmel';
+
+                if (question.correct_ratio <= 0.2)
+                    question.difficultyMessage = 'Çok zor';
+                else if (question.correct_ratio <= 0.4)
+                    question.difficultyMessage = 'Zor';
+                else if (question.correct_ratio <= 0.6)
+                    question.difficultyMessage = 'Orta güçlük';
+                else if (question.correct_ratio <= 0.8)
+                    question.difficultyMessage = 'Kolay';
+                else if (question.correct_ratio <= 1)
+                    question.difficultyMessage = 'Çok kolay';
             });
 
-            // (Xi - Xbar) (Yi - Ybar)
-            // sqrt((Xi - Xbar) ** 2 * (Xi - Ybar) ** 2)
-            let sum_xi_minus_xbar_times_yi_minus_ybar = 0;
-            let sum_yi_minus_ybar_squared = 0;
-            let sum_xi_minus_xbar_squared = 0;
-
-            student_query.forEach((student, studentIndex) => {
-                let xi = student.questionData[questionIndex].selectedOption == student.questionData[questionIndex].correctOption ? 1 : 0;
-                sum_xi_minus_xbar_times_yi_minus_ybar += (xi - xbar_question) * (student.numberOfCorrectAnswers - ybar);
-                sum_xi_minus_xbar_squared += Math.pow(xi - xbar_question, 2);
-                sum_yi_minus_ybar_squared += Math.pow(student.numberOfCorrectAnswers - ybar, 2);
+            questions.forEach(async (question) => {
+                await pool.query("UPDATE question SET correct_count = $1, incorrect_count = $2, unanswered_count = $3, discrimination_ratio = $4, correct_ratio = $5 WHERE exam_id = $6 AND index = $7;", [question.correct_count, question.incorrect_count, question.unanswered_count, question.discriminationRatio, question.correct_ratio, examId, question.index]);
+                question.options.forEach(async (option) => {
+                    await pool.query("UPDATE option SET frequency = $1, frequency_ratio = $2, discrimination_ratio = $3 WHERE exam_id = $4 AND index = $5 AND question_index = $6;", [option.frequency, option.frequency_ratio, option.discrimination_ratio, examId, option.index, question.index]);
+                });
             });
-
-            question.discriminationRatio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared)) ? 0 : -Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared) * 100) / 100 - Math.random() * 4 / 10;
-
-            if (question.discriminationRatio <= 0.2)
-                question.discriminationStatus = 'Madde çok zayıf, testten çıkarılmalı';
-            else if (question.discriminationRatio <= 0.3)
-                question.discriminationStatus = 'Madde düzeltildikten sonra teste alınmalı';
-            else if (question.discriminationRatio <= 0.4)
-                question.discriminationStatus = 'Madde ayırt ediciliği iyi';
-            else if (question.discriminationRatio <= 1)
-                question.discriminationStatus = 'Madde ayırt ediciliği mükemmel';
-
-            if (question.correct_ratio <= 0.2)
-                question.difficultyMessage = 'Çok zor';
-            else if (question.correct_ratio <= 0.4)
-                question.difficultyMessage = 'Zor';
-            else if (question.correct_ratio <= 0.6)
-                question.difficultyMessage = 'Orta güçlük';
-            else if (question.correct_ratio <= 0.8)
-                question.difficultyMessage = 'Kolay';
-            else if (question.correct_ratio <= 1)
-                question.difficultyMessage = 'Çok kolay';
-        });
-
-        questions.forEach(async (question) => {
-            await pool.query("UPDATE question SET correct_count = $1, incorrect_count = $2, unanswered_count = $3, discrimination_ratio = $4, correct_ratio = $5 WHERE exam_id = $6 AND index = $7;", [question.correct_count, question.incorrect_count, question.unanswered_count, question.discriminationRatio, question.correct_ratio, examId, question.index]);
-            question.options.forEach(async (option) => {
-                await pool.query("UPDATE option SET frequency = $1, frequency_ratio = $2, discrimination_ratio = $3 WHERE exam_id = $4 AND index = $5 AND question_index = $6;", [option.frequency, option.frequency_ratio, option.discrimination_ratio, examId, option.index, question.index]);
-            });
-        });
+        }
 
         let std_deviation = 0;
         student_query.forEach((student) => {
