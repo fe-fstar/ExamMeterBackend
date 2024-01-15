@@ -610,7 +610,7 @@ router.post("/stats", authorize, async (req, res) => {
             gradesList.push(student.grade);
         });
         
-        console.log(gradeList);
+        console.log(gradesList);
         console.log(gradesList.length);
         const sumOfGrades = gradesList.reduce((a, b) => a + b, 0);
         console.log(sumOfGrades);
