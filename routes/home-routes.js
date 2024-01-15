@@ -613,7 +613,8 @@ router.post("/stats", authorize, async (req, res) => {
             gradesList.push(student.grade);
             mean += student.grade;
         });
-        mean /= student_query.length;
+
+        mean = mean / student_query.length;
 
         // CALCULATE THE CORRELATION COEFFICIENT OF QUESTIONS
         questions.forEach((question, questionIndex) => {
