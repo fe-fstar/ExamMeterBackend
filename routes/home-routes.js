@@ -537,14 +537,14 @@ router.post("/stats", authorize, async (req, res) => {
         let questions = question_query.rows.sort((a, b) => a.index - b.index);
         let options = option_query.rows.sort(compareOptions);
 
-        const alreadyUpdated = questions[0].discrimination_ratio != null;
+        const alreadyUpdated = questions.some(q => q.discrimination_ratio != null);
 
         // student: 01230---11
 
         if (alreadyUpdated) {
             for (let question of questions) {
                 question.discriminationRatio = question.discrimination_ratio;
-                delete ""
+                delete question.discrimination_ratio;
                 question.options = [];
                 options.forEach((option) => {
                     if (option.question_index == question.index) {
@@ -559,6 +559,7 @@ router.post("/stats", authorize, async (req, res) => {
                 question.unanswered_count = 0;
                 question.correct_ratio = 0;
                 question.discriminationRatio = 0;
+                delete question.discrimination_ratio;
                 question.options = [];
                 options.forEach((option) => {
                     option.frequency = 0;
@@ -687,7 +688,7 @@ router.post("/stats", authorize, async (req, res) => {
                     sum_yi_minus_ybar_squared += Math.pow(student.numberOfCorrectAnswers - ybar, 2);
                 });
 
-                question.discriminationRatio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared)) ? 0 : -Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared) - Math.random() / 2 * 100) / 100;
+                question.discriminationRatio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared)) ? 0 : (-Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared) - Math.random() / 2) * 100) / 100;
 
                 if (question.discriminationRatio <= 0.2)
                     question.discriminationStatus = 'Madde çok zayıf, testten çıkarılmalı';
