@@ -523,7 +523,7 @@ router.post("/stats", authorize, async (req, res) => {
 
 
         // Retrieve the exam, questions, options and students who took it.
-        await Promise.all([client.query("SELECT t.*, u.username, u.email FROM user u JOIN takes t ON t.student_id = u.id WHERE t.exam_id = $1;", [examId]),
+        await Promise.all([client.query("SELECT t.*, u.username, u.email FROM users u JOIN takes t ON t.student_id = u.id WHERE t.exam_id = $1;", [examId]),
         client.query("SELECT * FROM question WHERE exam_id = $1;", [examId]),
         client.query("SELECT * FROM option WHERE exam_id = $1", [examId])]).then((results) => {
             student_query = results[0].rows;
