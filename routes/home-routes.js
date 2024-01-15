@@ -409,7 +409,7 @@ router.post("/question_plus_difficulties", authorize, async (req, res) => {
         let tolerance = req.body.tolerance;
         let questions;
         let options;
-        questions = await pool.query("SELECT q.* FROM question q JOIN exam e ON q.exam_id = e.id WHERE e.class_name = $1 AND (q.correct_ratio * 10 + $3 > $2 OR q.correct_ratio * 10 - $3 < $2));", [class_name, difficulty, tolerance]);
+        questions = await pool.query("SELECT q.* FROM question q JOIN exam e ON q.exam_id = e.id WHERE e.class_name = $1 AND ((1 - (q.correct_count / (q.correct_count + q.incorrect_count + q.unanswered_count))) * 10 + $3 > $2 AND (1 - (q.correct_count / (q.correct_count + q.incorrect_count + q.unanswered_count))) * 10 - $3 < $2);", [class_name, difficulty, tolerance]);
         options = await pool.query("SELECT o.* FROM option o JOIN exam e ON o.exam_id = e.id WHERE e.class_name = $1;", [class_name]);
         questions = questions.rows;
         options = options.rows;
