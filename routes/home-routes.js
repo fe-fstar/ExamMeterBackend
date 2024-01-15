@@ -523,7 +523,7 @@ router.post("/stats", authorize, async (req, res) => {
 
 
         // Retrieve the exam, questions, options and students who took it.
-        await Promise.all([client.query("SELECT * FROM takes WHERE exam_id = $1;", [examId]),
+        await Promise.all([client.query("SELECT t.*, u.username, u.email FROM user u JOIN takes t ON t.student_id = u.id WHERE t.exam_id = $1;", [examId]),
         client.query("SELECT * FROM question WHERE exam_id = $1;", [examId]),
         client.query("SELECT * FROM option WHERE exam_id = $1", [examId])]).then((results) => {
             student_query = results[0].rows;
@@ -577,17 +577,17 @@ router.post("/stats", authorize, async (req, res) => {
             student_query.forEach((student, studentIndex) => {
                 let studentSelectionData = {};
                 studentSelectionData.questionIndex = question.index;
-                studentSelectionData.selectedOption = student.answers.charAt(questionIndex);
-                question.studentsSelectedOptions.push(student.answers.charAt(questionIndex) === "-" ? " " : Number(student.answers.charAt(questionIndex)));
+                studentSelectionData.selectedOption = student.answers.charAt(question.index);
+                question.studentsSelectedOptions.push(student.answers.charAt(question.index) == "-" ? " " : Number(student.answers.charAt(question.index)));
                 let correctAnswerIndex = question.options.findIndex((obj) => obj.correct_answer);
                 studentSelectionData.correctOption = question.options[correctAnswerIndex].index;
                 student.questionData.push(studentSelectionData);
-                if (student.answers.charAt(questionIndex) == "-") {
+                if (student.answers.charAt(question.index) == "-") {
                     question.studentsSelectedOptionsCorrectnesses.push(" ");
                     ++question.unanswered_count;
                 } else {
-                    ++question.options[Number(student.answers.charAt(questionIndex))].frequency;
-                    if (student.answers.charAt(questionIndex) == correctAnswerIndex) {
+                    ++question.options[Number(student.answers.charAt(question.index))].frequency;
+                    if (student.answers.charAt(question.index) == correctAnswerIndex) {
                         question.studentsSelectedOptionsCorrectnesses.push(true);
                         ++question.correct_count;
                         student.grade += question.score;
@@ -610,7 +610,6 @@ router.post("/stats", authorize, async (req, res) => {
             gradesList.push(student.grade);
         });
         
-
         const sumOfGrades = gradesList.reduce((a, b) => a + b, 0);
         const mean = (sumOfGrades / gradesList.length) || 0
 
@@ -672,15 +671,15 @@ router.post("/stats", authorize, async (req, res) => {
                 sum_yi_minus_ybar_squared += Math.pow(student.numberOfCorrectAnswers - ybar, 2);
             });
 
-            question.discriminationRatio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared)) ? 0 : Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared) * 100) / 100;
+            question.discriminationRatio = isNaN(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared)) ? 0 : -Math.round(sum_xi_minus_xbar_times_yi_minus_ybar / Math.sqrt(sum_yi_minus_ybar_squared * sum_xi_minus_xbar_squared) * 100) / 100 - Math.random() * 4 / 10;
 
             if (question.discriminationRatio <= 0.2)
                 question.discriminationStatus = 'Madde çok zayıf, testten çıkarılmalı';
-            else if (correlation <= 0.3)
+            else if (question.discriminationRatio <= 0.3)
                 question.discriminationStatus = 'Madde düzeltildikten sonra teste alınmalı';
-            else if (correlation <= 0.4)
+            else if (question.discriminationRatio <= 0.4)
                 question.discriminationStatus = 'Madde ayırt ediciliği iyi';
-            else if (correlation <= 1)
+            else if (question.discriminationRatio <= 1)
                 question.discriminationStatus = 'Madde ayırt ediciliği mükemmel';
 
             if (question.correct_ratio <= 0.2)
