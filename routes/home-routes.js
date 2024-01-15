@@ -609,6 +609,7 @@ router.post("/stats", authorize, async (req, res) => {
         mean = 0;
 
         student_query.forEach((student) => {
+            await client.query("UPDATE takes SET grade=$1 WHERE student_id=$2, exam_id=$3", [student.grade, student.student_id, examId]);
             gradesList.push(student.grade);
             mean += student.grade;
         });
