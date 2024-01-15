@@ -610,8 +610,8 @@ router.post("/stats", authorize, async (req, res) => {
             gradesList.push(student.grade);
         });
         
-        const sumOfGrades = times.reduce((a, b) => a + b, 0);
-        const mean = (sumOfGrades / times.length) || 0;
+        const sumOfGrades = gradesList.reduce((a, b) => a + b, 0);
+        const mean = (sumOfGrades / gradesList.length) || 0;
 
         // CALCULATE THE CORRELATION COEFFICIENT OF QUESTIONS
         questions.forEach((question, questionIndex) => {
